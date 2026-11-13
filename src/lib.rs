@@ -57,7 +57,9 @@ pub use crate::control::{
     IrqPollCycle, VanishedInterrupt, IRQ1_BIT, IRQ2_BIT, TIQ_BIT, VECTOR_IRQ1, VECTOR_IRQ2,
     VECTOR_NMI, VECTOR_RESET, VECTOR_TIQ,
 };
-pub use crate::core::{Bus, HuC6280, Kind, Pins, B, C, D, I, N, STACK_PAGE, T, V, Z, ZERO_PAGE};
+pub use crate::core::{
+    Bus, HuC6280, Kind, Pins, QuietWindow, B, C, D, I, N, STACK_PAGE, T, V, Z, ZERO_PAGE,
+};
 pub use crate::dispatch::{Form, Mode, Op, Row, OPCODES};
 pub use crate::hudson::{TmaMultiple, VDC_ADDRESS};
 pub use crate::state::CpuState;
