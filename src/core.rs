@@ -111,6 +111,72 @@ pub trait Bus {
     fn idle(&mut self, address: Option<u32>, pins: &mut Pins) {
         let _ = (address, pins);
     }
+
+    // -- the fork's opt-in: a quiet window (README, "A quiet window") ----------
+    //
+    // A bus that ignores these four items and the constant is driven exactly as
+    // above: one of the three calls per cycle. One that sets `QUIET` promises
+    // that for the master clocks its `quiet_window` lends, an access its
+    // `quiet_read` or `quiet_write` takes, and every internal cycle and dummy
+    // read, would have done nothing in `read`, `write` or `idle` but move its
+    // clock and move the byte: no interrupt line, request, hold or other device
+    // could change. The core then makes those cycles without a callback, adding
+    // their clocks up, and pays them with `quiet_spent` before the next call of
+    // the three and at the end of the step.
+
+    /// Whether this bus lends quiet windows. `false` (the default) compiles the
+    /// window away.
+    const QUIET: bool = false;
+
+    /// At the start of a step: the master clocks the core may spend in quiet
+    /// cycles before it must call `read`, `write` or `idle` again (a cycle is
+    /// quiet when, its own clocks counted, the total is still below
+    /// `budget`), and what a cycle costs at each speed. The window closes at
+    /// the first of the three calls; the next step asks again.
+    fn quiet_window(&mut self, pins: &Pins) -> QuietWindow {
+        let _ = pins;
+        QuietWindow::CLOSED
+    }
+
+    /// Inside a window: the byte at `address`, if a read there would have
+    /// done nothing else; `None` sends the cycle to `read`.
+    fn quiet_read(&mut self, address: u32) -> Option<u8> {
+        let _ = address;
+        None
+    }
+
+    /// Inside a window: store `value` (or drop it, where `write` would) and
+    /// return `true`, if a write there would have done nothing else; `false`
+    /// sends the cycle to `write`.
+    fn quiet_write(&mut self, address: u32, value: u8) -> bool {
+        let _ = (address, value);
+        false
+    }
+
+    /// The window's quiet cycles, paid: `clocks` master clocks passed with
+    /// nothing to do but count them, the last of them with `pins` as they are
+    /// now. Called before a `read`, `write` or `idle` that follows quiet
+    /// cycles, and once at the end of every step (with 0 when the step ended
+    /// on a call).
+    fn quiet_spent(&mut self, clocks: i64, pins: &Pins) {
+        let _ = (clocks, pins);
+    }
+}
+
+/// What [`Bus::quiet_window`] lends: `budget` master clocks, and `clocks` a
+/// cycle costs at low speed (`clocks[0]`) and at high speed (`clocks[1]`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct QuietWindow {
+    pub budget: i64,
+    pub clocks: [i64; 2],
+}
+
+impl QuietWindow {
+    /// No quiet cycle: every cycle is a call.
+    pub const CLOSED: QuietWindow = QuietWindow {
+        budget: i64::MIN,
+        clocks: [0, 0],
+    };
 }
 
 /// What a bus callback can see and change of the CPU while it runs: the
@@ -197,6 +263,10 @@ pub struct HuC6280<B: Bus> {
     /// T as the instruction fetch found it; the fetch clears it in P (U4).
     pub(crate) t: u8,
     pub(crate) cycles: u32,
+    /// The fork: the quiet window lent for this step and the master clocks
+    /// spent in it so far (both unused unless `B::QUIET`).
+    pub(crate) window: QuietWindow,
+    pub(crate) spent: i64,
 
     // -- the named switches, each with the reference's default ------------
     /// Named so a board or a later capture can change it: whether a pointer
@@ -252,6 +322,8 @@ impl<B: Bus> HuC6280<B> {
             mpr_latch: 0,
             t: 0,
             cycles: 0,
+            window: QuietWindow::CLOSED,
+            spent: 0,
             zero_page_pointer_wraps: true,
             sbc_honours_t: false,
             decimal_formula: DecimalFormula::Mednafen,
@@ -294,6 +366,9 @@ impl<B: Bus> HuC6280<B> {
     /// A data or program read at a logical address.
     #[inline(always)]
     pub(crate) fn cycle_read(&mut self, address: u16) -> u8 {
+        if B::QUIET {
+            return self.quiet_cycle_read(address);
+        }
         self.pins.kind = Kind::Read;
         self.cycles += 1;
         self.pins.frame.access();
@@ -304,6 +379,9 @@ impl<B: Bus> HuC6280<B> {
     /// A write at a logical address.
     #[inline(always)]
     pub(crate) fn cycle_write(&mut self, address: u16, value: u8) {
+        if B::QUIET {
+            return self.quiet_cycle_write(self.physical(address), value);
+        }
         self.pins.kind = Kind::Write;
         self.cycles += 1;
         self.pins.frame.access();
@@ -313,6 +391,9 @@ impl<B: Bus> HuC6280<B> {
 
     /// A write at a physical address, bypassing the mapper (ST0-ST2, U12).
     pub(crate) fn cycle_write_physical(&mut self, address: u32, value: u8) {
+        if B::QUIET {
+            return self.quiet_cycle_write(address, value);
+        }
         self.pins.kind = Kind::Write;
         self.cycles += 1;
         self.pins.frame.access();
@@ -322,6 +403,9 @@ impl<B: Bus> HuC6280<B> {
     /// A read the chip makes and discards, at a logical address (C8).
     #[inline(always)]
     pub(crate) fn dummy(&mut self, address: u16) {
+        if B::QUIET {
+            return self.quiet_idle(Kind::Dummy, Some(address));
+        }
         self.pins.kind = Kind::Dummy;
         self.cycles += 1;
         self.pins.frame.access();
@@ -332,10 +416,84 @@ impl<B: Bus> HuC6280<B> {
     /// An internal cycle: nothing on the bus (C8).
     #[inline(always)]
     pub(crate) fn io(&mut self) {
+        if B::QUIET {
+            return self.quiet_idle(Kind::Idle, None);
+        }
         self.pins.kind = Kind::Idle;
         self.cycles += 1;
         self.pins.frame.access();
         self.bus.idle(None, &mut self.pins);
+    }
+
+    // -- the fork's quiet window (Bus::QUIET): the same cycles, each a call
+    // only when it falls outside the window --------------------------------
+
+    /// This cycle's clocks added to the window's, if the cycle ends inside it.
+    #[inline(always)]
+    fn quiet_cycle(&self) -> Option<i64> {
+        let spent = self.spent + self.window.clocks[self.pins.high_speed as usize];
+        if spent < self.window.budget {
+            Some(spent)
+        } else {
+            None
+        }
+    }
+
+    /// A cycle that is a call: pay the quiet cycles before it and close the
+    /// window for the rest of the step.
+    #[inline(always)]
+    fn leave_window(&mut self) {
+        if self.spent != 0 {
+            self.bus.quiet_spent(self.spent, &self.pins);
+            self.spent = 0;
+        }
+        self.window.budget = i64::MIN;
+    }
+
+    #[inline(always)]
+    fn quiet_cycle_read(&mut self, address: u16) -> u8 {
+        self.pins.kind = Kind::Read;
+        self.cycles += 1;
+        self.pins.frame.access();
+        let physical = self.physical(address);
+        if let Some(spent) = self.quiet_cycle() {
+            if let Some(value) = self.bus.quiet_read(physical) {
+                self.spent = spent;
+                return value;
+            }
+        }
+        self.leave_window();
+        self.bus.read(physical, &mut self.pins)
+    }
+
+    #[inline(always)]
+    fn quiet_cycle_write(&mut self, physical: u32, value: u8) {
+        self.pins.kind = Kind::Write;
+        self.cycles += 1;
+        self.pins.frame.access();
+        if let Some(spent) = self.quiet_cycle() {
+            if self.bus.quiet_write(physical, value) {
+                self.spent = spent;
+                return;
+            }
+        }
+        self.leave_window();
+        self.bus.write(physical, value, &mut self.pins);
+    }
+
+    /// An internal cycle or a dummy read (`kind`, at `address`).
+    #[inline(always)]
+    fn quiet_idle(&mut self, kind: Kind, address: Option<u16>) {
+        self.pins.kind = kind;
+        self.cycles += 1;
+        self.pins.frame.access();
+        if let Some(spent) = self.quiet_cycle() {
+            self.spent = spent;
+            return;
+        }
+        self.leave_window();
+        let physical = address.map(|address| self.physical(address));
+        self.bus.idle(physical, &mut self.pins);
     }
 
     /// The dummy read after an opcode that has no operand: PC, the byte after it.

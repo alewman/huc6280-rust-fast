@@ -76,6 +76,15 @@ impl<B: Bus> HuC6280<B> {
     /// other boundary is `Part::step`'s.
     #[inline]
     pub fn step(&mut self) -> u32 {
+        if B::QUIET {
+            // the fork's quiet window (not kept): ask for one, pay what was spent at the end
+            self.window = self.bus.quiet_window(&self.pins);
+            let cycles = Part::step(self);
+            self.bus
+                .quiet_spent(std::mem::take(&mut self.spent), &self.pins);
+            self.window.budget = i64::MIN;
+            return cycles;
+        }
         let frame = &self.pins.frame;
         if frame.reset_pending
             | frame.halted
