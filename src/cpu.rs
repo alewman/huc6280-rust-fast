@@ -69,8 +69,35 @@ impl<B: Bus> HuC6280<B> {
 
     /// Execute one instruction, interrupt entry or reset; return its cycle
     /// count ([`Part::step`], the frame's).
+    ///
+    /// The fork: the usual boundary (no reset, not halted, nothing requested,
+    /// nothing the last poll left: `Part::step` would skip the interrupt
+    /// decision too) is tested in one go and runs the instruction here; any
+    /// other boundary is `Part::step`'s.
     #[inline]
     pub fn step(&mut self) -> u32 {
+        let frame = &self.pins.frame;
+        if frame.reset_pending
+            | frame.halted
+            | (frame.requests != 0)
+            | frame.polled.is_some()
+            | frame.polled_i.is_some()
+        {
+            return self.step_at_a_request();
+        }
+        let cycles = self.execute_sequence();
+        let frame = &mut self.pins.frame;
+        if let Some(deferred) = frame.deferred {
+            // A bus callback changed a request in the last cycle, after the poll.
+            frame.deferred = None;
+            frame.polled = Some(deferred);
+        }
+        cycles
+    }
+
+    /// A boundary with something to decide: the frame's own step.
+    #[inline(never)]
+    fn step_at_a_request(&mut self) -> u32 {
         Part::step(self)
     }
 
