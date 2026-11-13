@@ -3,7 +3,7 @@
 version = 4
 
 [[package]]
-name = "huc6280-rust"
+name = "huc6280-rust-fast"
 version = "0.1.0"
 dependencies = [
  "serde",
