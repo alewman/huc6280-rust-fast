@@ -15,7 +15,6 @@ use sixfiveohtwo::frame::{Frame, Part};
 
 use crate::control::{IRQ1_BIT, IRQ2_BIT, TIQ_BIT};
 use crate::core::{Bus, HuC6280, T};
-use crate::dispatch::OPCODES;
 use crate::state::CpuState;
 
 impl<B: Bus> Part for HuC6280<B> {
@@ -64,8 +63,7 @@ impl<B: Bus> HuC6280<B> {
         // next instruction; the handler sees what it was.
         self.t = self.p & T;
         self.p &= !T;
-        let (op, mode, ..) = OPCODES[opcode as usize];
-        self.dispatch(op, mode);
+        self.dispatch_opcode(opcode);
         self.cycles
     }
 

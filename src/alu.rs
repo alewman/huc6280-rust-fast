@@ -173,6 +173,7 @@ impl<B: Bus> HuC6280<B> {
     }
 
     /// ORA -- A OR M -> A, or M(X) OR M -> M(X) with T set (SW SB-58).
+    #[inline(always)]
     pub(crate) fn op_ora(&mut self, mode: Mode) {
         let address = self.ea(mode);
         let operand = self.load(address);
@@ -184,6 +185,7 @@ impl<B: Bus> HuC6280<B> {
     }
 
     /// AND -- A AND M -> A, or M(X) AND M -> M(X) with T set (SW SB-18).
+    #[inline(always)]
     pub(crate) fn op_and(&mut self, mode: Mode) {
         let address = self.ea(mode);
         let operand = self.load(address);
@@ -195,6 +197,7 @@ impl<B: Bus> HuC6280<B> {
     }
 
     /// EOR -- A EOR M -> A, or M(X) EOR M -> M(X) with T set (SW SB-47).
+    #[inline(always)]
     pub(crate) fn op_eor(&mut self, mode: Mode) {
         let address = self.ea(mode);
         let operand = self.load(address);
@@ -205,6 +208,7 @@ impl<B: Bus> HuC6280<B> {
         }
     }
 
+    #[inline(always)]
     fn arithmetic(&mut self, mode: Mode, operation: Arithmetic, uses_t: bool) {
         let address = self.ea(mode);
         let operand = self.load(address);
@@ -236,11 +240,13 @@ impl<B: Bus> HuC6280<B> {
     }
 
     /// ADC -- A + M + C -> A, or M(X) + M + C -> M(X) with T set (SW SB-17).
+    #[inline(always)]
     pub(crate) fn op_adc(&mut self, mode: Mode) {
         self.arithmetic(mode, add, true);
     }
 
     /// SBC -- A - M - (1 - C) -> A; T is ignored (C5) (SW SB-74).
+    #[inline(always)]
     pub(crate) fn op_sbc(&mut self, mode: Mode) {
         self.arithmetic(mode, subtract, self.sbc_honours_t);
     }
@@ -255,6 +261,7 @@ impl<B: Bus> HuC6280<B> {
     }
 
     /// CMP -- A - M, flags only (SW SB-41).
+    #[inline(always)]
     pub(crate) fn op_cmp(&mut self, mode: Mode) {
         let address = self.ea(mode);
         let operand = self.load(address);
@@ -262,6 +269,7 @@ impl<B: Bus> HuC6280<B> {
     }
 
     /// CPX -- X - M, flags only (SW SB-42).
+    #[inline(always)]
     pub(crate) fn op_cpx(&mut self, mode: Mode) {
         let address = self.ea(mode);
         let operand = self.load(address);
@@ -269,6 +277,7 @@ impl<B: Bus> HuC6280<B> {
     }
 
     /// CPY -- Y - M, flags only (SW SB-43).
+    #[inline(always)]
     pub(crate) fn op_cpy(&mut self, mode: Mode) {
         let address = self.ea(mode);
         let operand = self.load(address);
@@ -286,6 +295,7 @@ impl<B: Bus> HuC6280<B> {
 
     /// BIT -- A AND M sets Z; M bits 7 and 6 -> N and V, immediate form too
     /// (U19) (SW SB-25).
+    #[inline(always)]
     pub(crate) fn op_bit(&mut self, mode: Mode) {
         let address = self.ea(mode);
         let operand = self.load(address);

@@ -9,6 +9,7 @@ use crate::dispatch::Mode;
 
 impl<B: Bus> HuC6280<B> {
     /// LDA -- M -> A (SW SB-53).
+    #[inline(always)]
     pub(crate) fn op_lda(&mut self, mode: Mode) {
         let address = self.ea(mode);
         let value = self.load(address);
@@ -16,6 +17,7 @@ impl<B: Bus> HuC6280<B> {
     }
 
     /// LDX -- M -> X (SW SB-54).
+    #[inline(always)]
     pub(crate) fn op_ldx(&mut self, mode: Mode) {
         let address = self.ea(mode);
         let value = self.load(address);
@@ -23,6 +25,7 @@ impl<B: Bus> HuC6280<B> {
     }
 
     /// LDY -- M -> Y (SW SB-55).
+    #[inline(always)]
     pub(crate) fn op_ldy(&mut self, mode: Mode) {
         let address = self.ea(mode);
         let value = self.load(address);
@@ -30,24 +33,28 @@ impl<B: Bus> HuC6280<B> {
     }
 
     /// STA -- A -> M (SW SB-83).
+    #[inline(always)]
     pub(crate) fn op_sta(&mut self, mode: Mode) {
         let address = self.ea(mode);
         self.store(address, self.a);
     }
 
     /// STX -- X -> M (SW SB-84).
+    #[inline(always)]
     pub(crate) fn op_stx(&mut self, mode: Mode) {
         let address = self.ea(mode);
         self.store(address, self.x);
     }
 
     /// STY -- Y -> M (SW SB-85).
+    #[inline(always)]
     pub(crate) fn op_sty(&mut self, mode: Mode) {
         let address = self.ea(mode);
         self.store(address, self.y);
     }
 
     /// STZ -- 00 -> M (SW SB-86).
+    #[inline(always)]
     pub(crate) fn op_stz(&mut self, mode: Mode) {
         let address = self.ea(mode);
         self.store(address, 0);

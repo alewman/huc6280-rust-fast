@@ -44,12 +44,14 @@ impl<B: Bus> HuC6280<B> {
     }
 
     /// RMBi -- clear bit i of the zero-page byte (SW SB-67).
+    #[inline(always)]
     pub(crate) fn op_rmb(&mut self, mode: Mode) {
         let address = self.ea(mode);
         self.bit_write(address, true);
     }
 
     /// SMBi -- set bit i of the zero-page byte (SW SB-79).
+    #[inline(always)]
     pub(crate) fn op_smb(&mut self, mode: Mode) {
         let address = self.ea(mode);
         self.bit_write(address, false);
@@ -70,6 +72,7 @@ impl<B: Bus> HuC6280<B> {
     }
 
     /// TSB -- A OR M -> M; N and V from M, Z from the result (U23) (SW SB-103).
+    #[inline(always)]
     pub(crate) fn op_tsb(&mut self, mode: Mode) {
         let address = self.ea(mode);
         self.test_and_modify(address, |cpu, value| value | cpu.a);
@@ -77,6 +80,7 @@ impl<B: Bus> HuC6280<B> {
 
     /// TRB -- (NOT A) AND M -> M; N and V from M, Z from the result (U23)
     /// (SW SB-102).
+    #[inline(always)]
     pub(crate) fn op_trb(&mut self, mode: Mode) {
         let address = self.ea(mode);
         self.test_and_modify(address, |cpu, value| value & !cpu.a);

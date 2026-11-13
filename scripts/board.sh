@@ -13,7 +13,10 @@
 #   scripts/board.sh rev REV   the benchmark binaries with this crate at REV (a commit, or `work`
 #                              for the working tree) into scratch/bins/REV/: pce-bench,
 #                              pce-profile, and pcecd-cpubench (pcecd-bench timed by the thread's
-#                              CPU time, built with the board's fat LTO as play-pce builds)
+#                              CPU time, built with the board's fat LTO as play-pce builds),
+#                              dormann (the core alone) and pce_wasm_bench.wasm
+#   scripts/board.sh rev REV quiet   the same with scripts/board-quiet.patch applied to the
+#                              board copy: the board taking the core's quiet window (opt-in)
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 S="$ROOT/scratch"
@@ -63,7 +66,8 @@ gate)
     ;;
 rev)
     REV=${2:?REV}
-    OUT="$S/bins/$REV"
+    VARIANT=${3:+-$3}
+    OUT="$S/bins/$REV$VARIANT"
     mkdir -p "$OUT"
     if [ "$REV" = work ]; then
         CORE="$ROOT"
@@ -71,12 +75,16 @@ rev)
         CORE="$S/trees/$REV"
         [ -d "$CORE" ] || { mkdir -p "$CORE"; git -C "$ROOT" archive "$REV" | tar -x -C "$CORE"; }
     fi
-    T="$S/revs/$REV"
+    T="$S/revs/$REV$VARIANT"
     if [ ! -d "$T" ]; then
         mkdir -p "$T"
         export_repo "$BOARD_REPO" "$T/board"
         repoint "$T/board/Cargo.toml" 'huc6280 = { package = "huc6280-rust", path = "../huc6280-rust" }' \
             "huc6280 = { package = \"huc6280-rust-fast\", path = \"$CORE\" }"
+        if [ "$VARIANT" = -quiet ]; then
+            # what the board fork would add to take the core's quiet window
+            patch -s -d "$T/board" -p1 < "$ROOT/scripts/board-quiet.patch"
+        fi
         export_repo "$CD_REPO" "$T/pcenginecd"
         repoint "$T/pcenginecd/Cargo.toml" 'pcengine_rust = { package = "pcengine-rust", path = "../pcengine-rust" }' \
             'pcengine_rust = { package = "pcengine-rust-fast", path = "../board" }'
@@ -104,7 +112,8 @@ for old, new in [
 open(out, "w").write(text)
 PY
     fi
-    TD="$S/target-revs"
+    # a target directory per revision and variant: the binaries share their names
+    TD="$S/target-revs/$REV$VARIANT"
     nice cargo build --release -q --manifest-path "$T/board/Cargo.toml" --target-dir "$TD" --bin pce-bench
     cp "$TD/release/pce-bench" "$OUT/"
     nice cargo build --release -q --manifest-path "$T/board/Cargo.toml" --target-dir "$TD" --features profile --bin pce-profile
@@ -113,6 +122,12 @@ PY
     cp "$TD/release/pcecd-cpubench" "$OUT/"
     nice cargo build --release -q --manifest-path "$CORE/Cargo.toml" --target-dir "$TD-core" --bin dormann
     cp "$TD-core/release/dormann" "$OUT/"
+    # the board under wasm, as the board's scripts/wasm-bench.sh builds it (fat LTO, panic=abort)
+    TOOLCHAIN=${TOOLCHAIN:-"$HOME/.rustup/toolchains/1.93.1-x86_64-unknown-linux-gnu"}
+    RUSTC="$TOOLCHAIN/bin/rustc" nice "$TOOLCHAIN/bin/cargo" build --release -q \
+        --manifest-path "$T/board/wasm-bench/Cargo.toml" --target-dir "$TD-wasm" \
+        --target wasm32-unknown-unknown --lib
+    cp "$TD-wasm/wasm32-unknown-unknown/release/pce_wasm_bench.wasm" "$OUT/"
     echo "$OUT: $(ls "$OUT" | tr '\n' ' ')"
     ;;
 *)
