@@ -22,6 +22,19 @@ Dormann x0.989, wasm x0.988 to x1.100 a title (x1.020 overall).
   primitive with the dead window code in its body is inlined differently. Rewritten so a
   primitive's body is the old one with `if B::QUIET { return self.quiet_...() }` first, the
   plain board was x0.994 (noise), and the patched board taking the window x1.014.
+- **The quiet window on the kept first step** (branch `not-kept/quiet-window`; the README's
+  section on it says what it is and what a board would add). Against 649e7ca with the plain board,
+  the same core with the window compiled away: x0.997 (noise). With the board patched to take it
+  (`scripts/board-quiet.patch`): Blazing Lazers x1.005, Bonk's Adventure x1.088, R-Type x1.183,
+  After Burner II x1.081, Street Fighter II' x0.798, x1.022 overall; under wasm, against the fork
+  point, x0.950 (Street Fighter II' x0.830). Street Fighter II' runs from a mapper card the board
+  does not lend: every step's first program read misses the window, looks its page up twice and
+  closes the window for the rest of the step. With 95% of Blazing Lazers' cycles inside the window
+  (counted), it still gained nothing there: the board's quiet callback it replaces was already
+  cheap next to the core's own work per cycle.
+- **The quiet window reopened after every call** (so a missed read does not close it for the rest
+  of the step): x0.956 overall against 649e7ca, Street Fighter II' x0.842, the others x0.97 to
+  x1.00. The window's question to the board on every call costs more than the quiet cycles save.
 - **Not an attempt, a check of a guess:** that the per-cycle `cycles += 1` (a read-modify-write
   of memory every cycle) was a dependency chain worth breaking. With it removed altogether
   (wrong, but the speed is what was asked) Dormann ran x1.013: it is not.

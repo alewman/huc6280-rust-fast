@@ -80,3 +80,38 @@ their numbers. Stop when the profile is flat or three attempts in a row are not 
   natively and under wasm, and for a CD case; what was not kept; the faults; both gates' final
   results; confirmation that pcengine-rust-fast and both add-ons build and pass against this crate
   unchanged but for the path; what a board would add for any opt-in gain; the final commit.
+
+## What was built
+
+2026-11-13. Two kept changes, both gates green on every commit, 27 of 27 seeded faults caught
+(the README has the tables; docs/not-kept.md the rest):
+
+1. **The dispatch from constant rows with the cycle primitives inlined** (649e7ca): board
+   x1.078 and x1.048, CD x1.097, Dormann x1.043, wasm x1.000.
+2. **The usual boundary in one test** (aad85b2): board x1.023 and x1.024, CD x1.017, Dormann
+   x1.387, wasm x1.016.
+
+Directly against the fork point: the board's five titles **x1.067** natively and **x1.016** under
+wasm, the CD case (Ryuuko no Ken on pcenginecd-rust) x1.039 and x1.065 (Mad Stalker x1.036),
+Dormann **x1.388**. The board fork's profile was right about where the core's time shows, but
+not about what removing it buys: the dispatch alone (two nested matches made one) measured
+nothing, since the compiler had already made jump tables of both; what paid was a whole
+instruction as one stretch of code, and the boundary's five tests made one.
+
+**The opt-in** the brief anticipated (a board lending pages so a cycle needs no call) was built
+as the quiet window, measured with pcengine-rust-fast patched in a scratch copy, and not kept:
++8% to +18% on three titles, -20% on Street Fighter II' (a mapper card the board does not lend),
+x1.022 overall, x0.95 under wasm, and nothing for CD games (a port device makes every cycle an
+event). It is on the branch `not-kept/quiet-window` with its test, its faults and the board
+patch, for a board fork that wants to lend its mapper cards too.
+
+**Stopped** because the profile is flat: on the board no core line is above 3% (`physical`, the
+cycle's first store, the opcode `match`), and what remains is the contract itself, one call into
+the board per CPU cycle and one indirect jump per instruction. Under wasm the largest single
+function of a frame is the board's `Bus::read`, about a fifth: the next gain for phones is in
+the board's quiet callback, not in this crate.
+
+Not done here, by the brief's rules: nothing was written in pcengine-rust-fast, the add-ons,
+huc6280-rust, 6502-rust or play-pce (their gates ran on scratch copies with one line changed); no
+GitHub repository, nothing pushed. The fork still uses 6502-rust's frame: carrying it was not
+needed for the boundary change, which reads the frame's public fields.

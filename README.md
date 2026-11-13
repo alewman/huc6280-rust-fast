@@ -1,4 +1,176 @@
-# huc6280-rust
+# huc6280-rust-fast
+
+The speed fork of [huc6280-rust](../huc6280-rust), the Rust Hudson HuC6280 core (itself
+transcribed from, and proven equivalent to,
+[huc6280-python](https://github.com/alewman/huc6280-python) `v0.3.0`), forked at `7f49bf8` and
+**held in lockstep with it**: every change must leave every rung of the base core's ladder
+identical (the traces against huc6280-python, all 640,000 SingleStepTests verdicts, Dormann, the
+interrupt lockstep, the MAME replays), keep pcengine-rust-fast's 275 lockstep cases and its
+save-state round trips identical, and measure faster, or it is not kept. The base core is the
+readable one; this one is for play-pce, and above all for its wasm build on phones.
+
+**The crate is still `huc6280` and its public API is the base core's**: the `Bus` trait and its
+three methods, `Pins` (its fields, `frame` included, and its methods), `HuC6280::new` and `step`,
+the registers, `capture_state`/`restore_state`/`CpuState`, the switches with their defaults, the
+dispatch table, and the frame's types re-exported from 6502-rust as before. Nothing was added. A
+board or an add-on changes one line:
+
+```toml
+huc6280 = { package = "huc6280-rust-fast", path = "../huc6280-rust-fast" }
+```
+
+pcengine-rust-fast, supergrafx-rust and pcenginecd-rust build and pass on this crate with that
+line changed and nothing else (below, "The add-ons").
+
+## Speed
+
+Measured directly, the fork point's build against this one, alternated on one pinned efficiency
+core by CPU time (best of 12 a side natively, of 8 under wasm), the checksums of every picture,
+every sample and the final snapshot equal on both sides:
+
+| Title (600 frames, the board's picture-gate input) | fork point | now | | fork point, wasm | now, wasm | |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Blazing Lazers | 821.0 | 904.2 | x1.101 | 482.8 | 497.2 | x1.030 |
+| Bonk's Adventure | 1005.7 | 1044.8 | x1.039 | 572.1 | 579.1 | x1.012 |
+| R-Type | 921.2 | 975.8 | x1.059 | 507.8 | 512.0 | x1.008 |
+| After Burner II | 818.4 | 894.0 | x1.092 | 468.4 | 477.2 | x1.019 |
+| Street Fighter II' | 836.2 | 872.4 | x1.043 | 416.3 | 420.8 | x1.011 |
+| all five (geometric mean) | | | **x1.067** | | | **x1.016** |
+
+Frames per second of pcengine-rust-fast (`pce-bench`, its fat-LTO profile) on a scratch copy built
+against each core. Under wasm: the board's `wasm-bench` under Node 22 (`scripts/ab_wasm.py`, 1,200
+frames).
+
+| Other case | fork point | now | |
+| --- | ---: | ---: | ---: |
+| **A CD game**: Ryuuko no Ken on pcenginecd-rust (System Card 3.0, Arcade Card, 1,500 frames from power-on, fat LTO as play-pce builds) | 187.0 fps | 199.3 fps | **x1.065** (x1.039 in a first run; Mad Stalker x1.036) |
+| **The core alone**: Dormann's relocated 65C02 test, 20,936,652 instructions on flat RAM (this crate's own profile, no LTO) | 0.210 s (99.7 M/s) | 0.152 s (137.7 M/s) | **x1.388** |
+
+| Kept, in order | board, five titles | wasm | CD case | Dormann |
+| --- | ---: | ---: | ---: | ---: |
+| **The dispatch from constant rows, and the cycle primitives inlined into every handler.** `execute_sequence` matches on the opcode; each of the 256 arms reads its row of `OPCODES` at compile time and runs that handler with its addressing mode built in, and `cycle_read`, `cycle_write`, `dummy`, `io` and `fetch` are `inline(always)`, so an instruction is one stretch of code with one jump into it. The table stays the one place a handler and a mode are written | x1.078, x1.048 | x1.000 | x1.097 | x1.043 |
+| **The usual boundary in one test.** `step` tests reset, halted, the requests and what the last poll left (`polled`, `polled_i`) together and, when all are clear, runs the instruction and the frame's `deferred` bookkeeping itself, as `Part::step` would; any other boundary is `Part::step`'s, out of line | x1.023, x1.024 | x1.016 | x1.017 | x1.387 |
+
+Each factor is against the build before it (two board runs each, every title up in all four).
+Chained, the steps give x1.07 to x1.10 on the board, x1.016 under wasm, x1.116 on the CD case and
+x1.45 on Dormann; measured directly against the fork point (the tables above) they are x1.067,
+x1.016, x1.039 to x1.065 and x1.388. A/A on this machine (load 15 to 21 throughout): x0.95 to x1.00 a title
+natively, x0.988 to x1.100 a title under wasm, x0.983 on the CD case, x0.989 on Dormann; so the
+board's x1.067 is real but the wasm x1.016 is at the edge of what this machine can tell.
+Tried and not kept, with their numbers: [docs/not-kept.md](docs/not-kept.md) (the dispatch alone,
+and the quiet window below).
+
+**What this does not reach.** On the board the core is now 29% of Blazing Lazers and 27% of Street
+Fighter II' (33% and 30% at the fork point), and no line of it is above 3%: what is left is one
+call into the board per CPU cycle and one indirect jump per instruction, which the bus contract
+(one callback per cycle, one instruction per `step`) fixes. Under wasm the largest single
+function is the board's `Bus::read` (about a fifth of a frame), not the core.
+
+## The quiet window: built, measured, not kept (what a board would add)
+
+The brief's opt-in: a gain that needs the board's cooperation, built on the core's side and
+measured with a board patched in a scratch copy. Built on the branch `not-kept/quiet-window`
+(not merged):
+
+- the core side: `Bus` gains a constant `QUIET` (default `false`, which compiles everything below
+  away) and four provided methods: `quiet_window(pins) -> QuietWindow` (at the start of a step:
+  how many master clocks of quiet cycles the board lends, and what a cycle costs at each speed),
+  `quiet_read(address) -> Option<u8>` and `quiet_write(address, value) -> bool` (inside the
+  window, the byte of a page where an access would do nothing but move the byte), and
+  `quiet_spent(clocks, pins)` (the quiet cycles paid, before the next call and at the end of the
+  step). Inside the window an internal cycle, a dummy read and a lent access are made with no
+  call, their clocks added up; `tests/quiet.rs` on the branch runs a model board with a moving
+  event horizon, a device page and interrupt changes both ways for 1.6 million steps and finds
+  the same calls at the same master clocks with the same pins, the same memory and the same
+  state after every step; five seeded faults on the window are all caught by it.
+- the board side, what pcengine-rust-fast would add (`scripts/board-quiet.patch`, 45 lines in
+  `board.rs`; `scripts/board.sh rev REV quiet` applies it, for revisions of that branch): `QUIET = true`; the window is `wake - mclk` unless a tap is on; a quiet
+  read or write is the board's own quiet case (`quiet_page`: work RAM, or the lent `RomCard`
+  image); `quiet_spent` moves `mclk` and stores the opcode as every callback does.
+
+Measured against the kept chain's first step (the core with the dispatch from rows): Bonk's
+Adventure x1.088, R-Type x1.183, After Burner II x1.081, Blazing Lazers x1.005, but Street
+Fighter II' x0.798, x1.022 overall, and under wasm x0.95. Street Fighter II' is on a mapper card
+(`Sf2Card`), which the board does not lend, so each step's first program read misses the window,
+looks the page up twice and closes the window for the rest of the step; reopening the window
+after every call instead cost more than it saved (x0.956 overall). With a device on the
+expansion port (the CD unit) the board's horizon is every cycle, so the window is never open and
+CD games gain nothing from it. For the window to pay, a board would have to lend the mapper
+cards' banks too (the board fork's not-kept list explains why it does not today), and the gain
+would be for HuCard games only; on this evidence it was not worth the second path through every
+cycle primitive.
+
+## The rule and the gate
+
+A change is kept only if both gates stay green and an A/B by CPU time shows a gain above the A/A
+noise; it is then one commit with its factors in the message. A rejected one is a line in
+[docs/not-kept.md](docs/not-kept.md). Every commit of this fork passed both gates as a tree of
+its own.
+
+- **The core gate**, `scripts/ladder.sh` (about two minutes; `--faults` adds rung 6): `cargo
+  test`; rung 1 (the arithmetic tables, the directed and sequence lockstep scenarios); rung 2 (all
+  640,000 SingleStepTests cases under both decimal formulas, the verdicts compared case for case
+  with the reference's); rung 3 (Dormann, the reference's line); rung 4 (the 65 interrupt
+  lockstep files); rung 5 (the six MAME replays and the two synthetic runs). The reference's side
+  of each rung never changes, so it is computed once on PyPy and kept under `external/`
+  (`external/refcache`, `external/sst/reference-*`, `external/dormann/reference.txt`,
+  `external/rung5/*.reference.txt`; the vectors from `scripts/fetch_vectors.sh`, the reference
+  checkout and caches copied from huc6280-rust's `external/`).
+- **The board gate**, `scripts/board.sh gate`: pcengine-rust-fast's own `scripts/ladder.sh`
+  (`cargo test`, the 275 lockstep cases from its reference cache, the save-state round trip and
+  run-ahead pass on the 18 picture-gate titles) on `scratch/board`, a copy of pcengine-rust-fast's
+  HEAD (`git archive`) whose manifest points at this crate by path, made by `scripts/board.sh
+  setup`; nothing is written in ../pcengine-rust-fast. It passed on the untouched fork first.
+- **Measuring**: `scripts/board.sh rev REV` builds the board's `pce-bench` and `pce-profile`, the
+  CD add-on's bench timed by thread CPU time, Dormann and the wasm bench against any revision of
+  this crate, each in its own target directory; pcengine-rust-fast's `scripts/ab.py` compares
+  two `pce-bench` builds on its five titles, `scripts/ab_wasm.py` two wasm builds, and
+  `scripts/ab_core.py` Dormann or the CD case (the disc extracted with `chdman` into `scratch/`
+  for the run and removed after). Profiles: the board's `pce-profile` (SIGPROF sampling, `perf`
+  is not allowed here) with its `profile.py`, and the same sampler around Dormann for the core
+  alone.
+
+## Where the time goes
+
+| | fork point | now |
+| --- | ---: | ---: |
+| Blazing Lazers on the board (`pce-profile`): the core and the 65xx frame under it | 33.2% | 29.0% |
+| Street Fighter II' on the board | 30.0% | 27.3% |
+| the hottest core lines on the board | the dispatch's `match` on the handler 3.8%, the `OPCODES` lookup 2.8%, `physical` 2.2% | `physical` 2.9%, the cycle's first store 2.3%, the opcode `match` 1.7% |
+| Dormann alone: the frame's `step` | 7.8% | 3.6% |
+| Dormann alone: the hottest lines | the `match` on the handler 10.9%, `physical` 8.9%, the `OPCODES` lookup 7.6% | `physical` 8.5%, the opcode `match` 6.6% and its arms |
+
+(Shares of a smaller whole after: Dormann's samples went from 2,851 to 2,141 for the same 12 runs.)
+
+## Seeded faults
+
+**27 caught, 0 missed** (`scripts/seeded_faults.py`, rung 6): the base core's 24, each by the same
+check as below, and three on the fork's shortcuts:
+
+| Fault | Module | What it changes | Caught by |
+| --- | --- | --- | --- |
+| `row-mode-zpx-as-zp` | `dispatch.rs` | an arm of the dispatch from rows is built with zp for a zp,X row | rung 2 (SingleStepTests sample) |
+| `step-keeps-polled-i` | `cpu.rs` | the one-test boundary leaves out `polled_i`, so after CLI, SEI or PLP with nothing requested the frame never consumes it | rung 1 (directed lockstep) |
+| `step-drops-deferred` | `cpu.rs` | the one-test boundary forgets a request changed in the last cycle instead of leaving it for the next boundary | rung 4 (interrupt lockstep) |
+
+(`e2-is-cla` and `tst-form` edit the table, which the dispatch from rows reads at compile time:
+still caught by the same rungs.)
+
+## The add-ons
+
+On scratch copies of supergrafx-rust (`1d0528a`) and pcenginecd-rust (`96ae3f7`) whose dependency
+line names `scratch/board` (pcengine-rust-fast on this crate) and nothing else changed:
+supergrafx-rust builds, its 52 tests pass and its 22 lockstep cases are identical from its
+reference cache; pcenginecd-rust builds, its 109 tests pass and its 52 lockstep cases (the probe
+card on synthetic discs, every switch, and six commercial discs on the System Card) are identical
+from its reference cache. (Their reference checkouts, probe cards and synthetic discs were
+copied from the add-ons' own `external/` and `scratch/`, nothing written there.)
+
+## The base core
+
+From here on this is huc6280-rust's README at the fork point (`7f49bf8`): what the core is, how
+it was certified against the reference, how a board uses it. All of it holds for this fork,
+which passes the same rungs; its Speed section is the fork point's.
 
 A Rust Hudson HuC6280 core (the CPU of the PC Engine, the TurboGrafx-16 and
 the SuperGrafx) transcribed from
@@ -36,7 +208,7 @@ cpu.request_reset();
 let cycles = cpu.step(); // 7: the start sequence, one bus call per cycle
 ```
 
-## For a board author
+### For a board author
 
 - **The bus.** `Bus` has three methods and the core calls exactly one of them
   per CPU cycle, in the chip's order: `read(address, pins) -> u8`,
@@ -102,7 +274,7 @@ let cycles = cpu.step(); // 7: the start sequence, one bus call per cycle
 
 `tests/core.rs` shows each of these in a few lines.
 
-## Layout
+### Layout
 
 Each `src/*.rs` file is the transcription of one `huc6280/*.py` module, with
 the same handler names, the same 256-row dispatch table (generated from the
@@ -118,7 +290,7 @@ instruction's address and bytes, and the reference's reader disassembles
 them. `src/bin/` holds the rungs' tools, among them the part of the
 reference's harness that the MAME replay needs.
 
-### Where Rust forced a difference
+#### Where Rust forced a difference
 
 Each module's header says so; together:
 
@@ -148,7 +320,7 @@ Each module's header says so; together:
 - **No halted state.** `Part::halted_cycle` is `unimplemented!`, as the
   reference's `_halted` raises.
 
-### What 6502-rust's frame would need to make this cleaner
+#### What 6502-rust's frame would need to make this cleaner
 
 Nothing here needed a change to 6502-rust; these are the places where this
 crate works around the frame rather than with it (the reference does the same
@@ -176,7 +348,7 @@ around `CPUFrame`):
    works as it is; a note in 6502-rust's README that this is the intended
    shape would have saved a decision.
 
-## Certification
+### Certification
 
 | What | Version |
 | --- | --- |
@@ -271,7 +443,7 @@ warnings` and `cargo test`, and against the reference rung 2 on a sample of
 100 cases an opcode, rung 3, rungs 1 and 4 on the quick scenario set and rung
 5's synthetic program, on every push to main and every pull request.
 
-### Speed
+#### Speed
 
 Klaus Dormann's relocated test (20,936,652 instructions on flat RAM, no
 tracing), one core of a busy 32-thread machine, best of five:
@@ -288,7 +460,7 @@ included) takes 2.1 s here and 19.8 s on the reference. This crate is
 the plain transcription: correct first, and the place to measure a speed fork
 against.
 
-### Notes on the reference
+#### Notes on the reference
 
 Nothing found here is a divergence: the Rust core does what huc6280-python
 v0.3.0 does in each case (rung 4 runs through all of them). They are places
@@ -316,7 +488,7 @@ the first three on the reference itself in a few lines each:
    early with the line it has just asserted still asserted when the core's
    PC is already at the handler.
 
-### Reproducing
+#### Reproducing
 
 ```text
 scripts/fetch_huc6280python.sh          # huc6280-python v0.3.0 into external/, with a PyPy venv
@@ -334,7 +506,7 @@ scripts/rung6.sh [CORPUS_DIR]           # after rung3.sh
 `docs/handoff-brief.md` is the brief this was built from, with what was built
 appended.
 
-## Licence
+### Licence
 
 MIT (see `LICENSE`). Nothing third-party is committed: the vectors, Dormann's
 test and the MAME traces are fetched or read in place. No GPL or LGPL source
