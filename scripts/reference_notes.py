@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
-"""Three corners of huc6280-python v0.3.0's interrupt lines, shown on the reference itself.
+"""Three corners of the reference's interrupt lines, shown on the reference itself.
 
     external/huc6280-python/.venv/bin/python scripts/reference_notes.py
 
-The README's "Notes on the reference", items 1 to 3. None is a divergence
-between the cores (rung 4 runs through all three and the traces are
-identical); they are behaviour that looked unintended while it was being
-transcribed, printed here so that whoever maintains the reference can see
-each in a few lines. The machine is 2 MB of RAM with every mapping register
-on page $F8, code at logical $4000, and the handlers' addresses in the
-vectors: TIQ $5000, IRQ1 $5100, IRQ2 $5200. A line change is given as the
-cycle it happens in (counted from 0 over the run) and the new (IRQ1, IRQ2,
-TIQ) levels.
+The README's "Notes on the reference", items 1 to 3: behaviour of
+huc6280-python v0.3.0 that looked unintended while it was being transcribed,
+filed there as issue 0005 and settled in v0.4.0 (the pinned reference). On
+v0.3.0 this printed a vanished entry's trail one step short (`$5100` at the
+fourth step), `$5100` for the swap (IRQ1 taken at once) and `$5100` without
+the round trip but `$4003` with it. On v0.4.0 each pair agrees, as the rule
+says it should: the same trail after a vanished entry as after a plain
+instruction; `$4003` (the NOP ran) for the swap; `$5100` with and without the
+round trip. The Rust core does the same at each pin (rung 4 runs through all
+three). The machine is 2 MB of RAM with every mapping register on page $F8,
+code at logical $4000, and the handlers' addresses in the vectors: TIQ $5000,
+IRQ1 $5100, IRQ2 $5200. A line change is given as the cycle it happens in
+(counted from 0 over the run) and the new (IRQ1, IRQ2, TIQ) levels.
 """
 
 from __future__ import annotations
@@ -53,7 +57,7 @@ def machine(code: list[int], during: dict[int, tuple[bool, bool, bool]]) -> HuC6
 
 
 def main() -> None:
-    # 1. The instruction a vanished interrupt runs is outside the last-cycle rule.
+    # 1. The instruction a vanished interrupt runs keeps the last-cycle rule (v0.3.0: it did not).
     #    CLI; NOP; NOP; NOP; NOP. First run: TIQ is up, drops in the first NOP's last cycle
     #    (cycle 3), so the entry after it finds nothing and runs the second NOP; IRQ1 rises
     #    in that NOP's last cycle (cycle 5). Second run: no TIQ, IRQ1 rises in the same cycle.
@@ -70,16 +74,18 @@ def main() -> None:
             trail.append(f"${cpu.pc:04X}")
         print(f"1. IRQ1 raised in the second NOP's last cycle, {name}: PC after each step {' '.join(trail)}")
 
-    # 2. A swap of sources in the last cycle is taken at once.
+    # 2. A swap of sources in the last cycle waits for the next poll (v0.3.0: taken at once).
     #    CLI; NOP; NOP with TIQ up; in the NOP's last cycle TIQ drops and IRQ1 rises. The
-    #    frame's IRQ_LINE never changes, so nothing is deferred.
+    #    frame's IRQ_LINE never changes; the core keeps the lines the poll saw (TIQ, gone by
+    #    the boundary, so dropped by C18's default) and runs the NOP.
     cpu = machine([CLI, NOP, NOP], {3: (True, False, False)})
     cpu.set_irq_lines(False, False, True)
     for _ in range(3):
         cpu.step()
     print(f"2. TIQ swapped for IRQ1 in the NOP's last cycle: PC after the next boundary ${cpu.pc:04X}")
 
-    # 3. Capture and restore at a boundary where the poll saw a line that has since dropped.
+    # 3. Capture and restore at a boundary where the poll saw a line that has since dropped
+    #    (CPUState.polled_irq_lines; v0.3.0 lost it and ran the NOP after the restore).
     #    CLI; NOP; NOP with IRQ1 up, dropped in the NOP's last cycle.
     for restore in (False, True):
         cpu = machine([CLI, NOP, NOP], {3: (False, False, False)})

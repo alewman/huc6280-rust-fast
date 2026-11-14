@@ -64,6 +64,17 @@ impl<B: Bus> HuC6280<B> {
         self.t = self.p & T;
         self.p &= !T;
         self.dispatch_opcode(opcode);
+        // A line that changed after the last bus access changed in the last
+        // cycle, after the poll (U21): the next boundary decides on the lines
+        // as they stood at that access. The frame keeps only whether an
+        // enabled line was asserted; a swap of sources leaves that unchanged
+        // (issue 0005).
+        let pins = &mut self.pins;
+        pins.polled_lines = if pins.frame.deferred.is_some() && pins.lines != pins.lines_at_access {
+            Some(pins.lines_at_access)
+        } else {
+            None
+        };
         self.cycles
     }
 
@@ -73,7 +84,10 @@ impl<B: Bus> HuC6280<B> {
     /// The fork: the usual boundary (no reset, not halted, nothing requested,
     /// nothing the last poll left: `Part::step` would skip the interrupt
     /// decision too) is tested in one go and runs the instruction here; any
-    /// other boundary is `Part::step`'s.
+    /// other boundary is `Part::step`'s. The polled lines (issue 0005) need
+    /// no test of their own: `Part::step` skips the boundary decision that
+    /// would use them up at such a boundary too, and `execute_sequence`
+    /// rewrites them at its end on either path.
     #[inline]
     pub fn step(&mut self) -> u32 {
         let frame = &self.pins.frame;
@@ -142,6 +156,7 @@ impl<B: Bus> HuC6280<B> {
             polled_maskable_interrupt: poll.polled_maskable_interrupt,
             polled_non_maskable_interrupt: poll.polled_non_maskable_interrupt,
             skipped_poll: poll.skipped_poll,
+            polled_irq_lines: self.pins.polled_lines,
         }
     }
 
@@ -161,10 +176,13 @@ impl<B: Bus> HuC6280<B> {
         pins.lines =
             (if state.irq1 { IRQ1_BIT } else { 0 }) | (if state.irq2 { IRQ2_BIT } else { 0 });
         pins.lines |= if state.tiq { TIQ_BIT } else { 0 };
-        pins.lines_before = pins.lines;
         pins.poll_lines = pins.lines;
+        pins.polled_lines = state.polled_irq_lines;
         pins.irq_disable = state.irq_disable;
         pins.frame.restore_poll(&state.poll_fields());
+        // The reference's _restore_poll ends in its _confirm, which sets
+        // _lines_at_access; Frame::restore_poll cannot reach the lines.
+        pins.lines_at_access = pins.lines;
         Ok(())
     }
 }

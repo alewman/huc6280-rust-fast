@@ -96,11 +96,25 @@ impl Pins {
         let lines = (if irq2 { IRQ2_BIT } else { 0 })
             | (if irq1 { IRQ1_BIT } else { 0 })
             | (if tiq { TIQ_BIT } else { 0 });
-        if self.frame.deferred.is_none() && lines != self.lines {
-            self.lines_before = self.lines; // what the poll saw if no access follows (C18)
+        let changed = lines ^ self.lines;
+        if changed == 0 {
+            return;
+        }
+        if let Some(polled_lines) = self.polled_lines {
+            // Between steps after a change the poll missed: what the host
+            // changes now counts for the next boundary, as the frame's request
+            // methods treat polled.
+            self.polled_lines = Some((polled_lines & !changed) | (lines & changed));
         }
         self.lines = lines;
         self.sync_irq();
+        if self.frame.deferred.is_none() {
+            // Learn whether a bus access follows, even when the frame's
+            // IRQ_LINE is unchanged (a source swapped for another): no access
+            // means the change came after the poll.
+            let requests = self.frame.requests;
+            self.frame.request(requests);
+        }
     }
 
     /// The (IRQ1, IRQ2, TIQ) levels last set.
@@ -389,6 +403,11 @@ impl<B: Bus> HuC6280<B> {
         self.fetch(); // C2: the signature byte is skipped, so BRK is two bytes
         self.interrupt(VECTOR_IRQ2, self.p | B); // U15
         self.io();
+        // BRK is the interrupt sequence (an entry is BRK with the opcode
+        // forced to $00: srg320's HDL, Mesen2's ProcessIrq) and, like an
+        // entry, does not poll: the handler's first instruction runs first
+        // (the 6502 frame's rule; issue 0005). step() moves this to polled.
+        self.pins.frame.deferred = Some(NO_POLL);
     }
 
     fn interrupt(&mut self, vector: u16, pushed_p: u8) {
@@ -415,10 +434,17 @@ impl<B: Bus> HuC6280<B> {
                 Some(taken) => vector = taken,
                 None => {
                     // Nothing is left to enter: the instruction runs instead
-                    // (issue 0002, C18).
+                    // (issue 0002, C18), with the bookkeeping step() does
+                    // after any instruction, so a request changed in its last
+                    // cycle waits for the next poll as it would anywhere else
+                    // (issue 0005).
                     self.pins.frame.polled = None;
-                    self.pins.frame.polled_i = None;
-                    return self.execute_sequence();
+                    let cycles = self.execute_sequence();
+                    let frame = &mut self.pins.frame;
+                    if let Some(deferred) = frame.deferred.take() {
+                        frame.polled = Some(deferred);
+                    }
+                    return cycles;
                 }
             }
         }
@@ -444,34 +470,34 @@ impl<B: Bus> HuC6280<B> {
     /// The frame's boundary decision, after working out which lines the poll saw.
     pub(crate) fn boundary_interrupt_sequence(&mut self) -> u8 {
         let pins = &mut self.pins;
-        // Which lines the poll saw: the requests changed in the last cycle
-        // (after the poll) leave the frame's polled set, and the lines as
-        // they were before that change are lines_before.
-        let deferred = matches!(pins.frame.polled, Some(polled) if polled & NO_POLL == 0);
-        pins.poll_lines = if pins.frame.polled.is_some() {
-            pins.lines_before
-        } else {
-            pins.lines
+        // Which lines the poll saw: those at the last instruction's
+        // last-but-one access when a line changed after it (polled_lines, set
+        // by execute_sequence), else the lines as they stand.
+        let polled_lines = pins.polled_lines.take();
+        let lines = pins.lines;
+        let seen = match self.irq_poll_cycle {
+            IrqPollCycle::SecondToLast => None,
+            IrqPollCycle::Last => Some(lines),
+            IrqPollCycle::Mednafen => {
+                let seen = polled_lines.unwrap_or(lines);
+                Some((seen & !TIQ_BIT) | (lines & TIQ_BIT))
+            }
         };
-        let mode = self.irq_poll_cycle;
-        if mode != IrqPollCycle::SecondToLast {
-            let seen = match mode {
-                IrqPollCycle::Last => pins.lines,
-                _ => (pins.poll_lines & !TIQ_BIT) | (pins.lines & TIQ_BIT),
-            };
-            pins.poll_lines = seen;
-            if deferred {
-                // The frame kept the requests from before the last cycle; the
-                // mode counts the levels at the boundary instead.
-                let asserted = if seen & !pins.irq_disable & 7 != 0 {
-                    IRQ_LINE
-                } else {
-                    0
-                };
-                pins.frame.polled = pins
-                    .frame
-                    .polled
-                    .map(|polled| (polled & !IRQ_LINE) | asserted);
+        match seen {
+            None => pins.poll_lines = polled_lines.unwrap_or(lines),
+            Some(seen) => {
+                pins.poll_lines = seen;
+                let polled = pins.frame.polled.unwrap_or(pins.frame.requests);
+                if polled & NO_POLL == 0 {
+                    // The frame kept the requests from before the last cycle;
+                    // the mode counts its own lines instead.
+                    let asserted = if seen & !pins.irq_disable & 7 != 0 {
+                        IRQ_LINE
+                    } else {
+                        0
+                    };
+                    pins.frame.polled = Some((polled & !IRQ_LINE) | asserted);
+                }
             }
         }
         let p = self.p;
@@ -528,6 +554,7 @@ impl<B: Bus> HuC6280<B> {
         self.pins.sync_irq();
         self.pins.frame.polled = Some(NO_POLL);
         self.pins.frame.deferred = None;
+        self.pins.polled_lines = None;
         self.cycles
     }
 

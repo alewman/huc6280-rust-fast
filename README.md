@@ -2,11 +2,12 @@
 
 A speed fork of [huc6280-rust](https://github.com/alewman/huc6280-rust), the
 Rust **Hudson Soft HuC6280** CPU core (the processor of the PC Engine, the
-TurboGrafx-16, the SuperGrafx and the CD-ROM systems), forked at `7f49bf8` and
-merged with its publication cleanup at `65c18df`. It is **held in lockstep
+TurboGrafx-16, the SuperGrafx and the CD-ROM systems), forked at `7f49bf8`,
+merged with its publication cleanup at `65c18df` and with its carrying of
+huc6280-python's issue 0005 at `43e5978`. It is **held in lockstep
 with it**: every change must leave every rung of huc6280-rust's ladder
 identical (and so this core equal to
-[huc6280-python](https://github.com/alewman/huc6280-python) `v0.3.0` at every
+[huc6280-python](https://github.com/alewman/huc6280-python) `v0.4.0` at every
 processor boundary and every bus cycle), keep the speed fork of the board,
 [pcengine-rust-fast](https://github.com/alewman/pcengine-rust-fast),
 identical on its 275 lockstep cases and its save-state round trips, and
@@ -23,10 +24,17 @@ its methods), `HuC6280::new` and `step`, the registers,
 the dispatch table, and the frame's types re-exported from
 [6502-rust](https://github.com/alewman/6502-rust) as before. Nothing was
 added. A board written for huc6280-rust changes one line, its dependency.
+Since 0.2.0 (huc6280-rust 0.2.0, issue 0005) `CpuState` has one more field,
+`polled_irq_lines: Option<u8>` (the lines the last poll saw when one changed
+in the instruction's last cycle; `None` otherwise and for a state saved before
+the field), so a board's saved states gain that key.
 
 ## Status
 
-**2026-11-13: two changes kept, every gate green.** On the board
+**2026-11-13: two changes kept; issue 0005 merged from huc6280-rust (the
+core gate and the seeded faults re-run against huc6280-python `v0.4.0`,
+`265df88`, green; the board gate below is the run before that merge, not
+repeated here while the board's references change).** On the board
 (pcengine-rust-fast, five titles) **x1.067** natively and x1.016 under wasm;
 a CD game x1.04 to x1.07; the core alone (Dormann's test) **x1.388**; all
 against the fork point (under "Speed"). Gates, re-run on 2026-11-13 after the
@@ -34,18 +42,19 @@ merge:
 
 | Gate | What | Result |
 | --- | --- | --- |
-| `cargo test` | the directed tests and the README's example | 13 pass |
+| `cargo test` | the directed tests and the README's example | 19 pass |
 | Rung 1 | ADC/SBC result tables; directed and sequence trace lockstep | 2,097,152 table entries identical; 5 of 5 scenarios identical |
 | Rung 2 | SingleStepTests huc6280, all 640,000 cases, both decimal formulas, verdicts compared case by case with the reference's | 0 cases judged differently under either formula |
 | Rung 3 | Dormann's 65C02 extended opcodes test, relocated | `success at $5675 after 20936652 instructions (test case 240)`, the reference's line |
 | Rung 4 | Interrupts in lockstep | 65 of 65 scenarios identical |
 | Rung 5 | Six MAME 0.285 replays and two synthetic runs | 8 of 8 identical |
-| Rung 6 | Seeded faults: huc6280-rust's 24 and three on this fork's shortcuts | 27 caught, 0 missed (2026-11-13 at `aad85b2`) |
+| Rung 6 | Seeded faults: huc6280-rust's 32 (8 of them on issue 0005's bookkeeping) and three on this fork's shortcuts | 35 caught, 0 missed (2026-11-13, after the merge) |
 | Board | pcengine-rust-fast on this crate: its tests, its 275 lockstep cases, the save-state round trip and run-ahead pass | 57 tests; 275 of 275 identical; 18 of 18 titles |
 
-Rung 6 is the run of 2026-11-13 at `aad85b2`, the last commit that changed
-the core's code (the merge since added a doc link and a stable sort in the
-replay tool). **Nothing here was run on a real console**: like
+Rungs 1 to 6 and `cargo test` are the runs of 2026-11-13 after merging
+huc6280-rust `43e5978` (issue 0005), against huc6280-python `v0.4.0`
+(`265df88`, fetched from a local clone: not on GitHub yet, so CI's rungs job
+fails until it is pushed); the board row is the run before that merge. **Nothing here was run on a real console**: like
 huc6280-rust, this core is proven equal to the reference, not to the chip.
 
 ## Using it
@@ -116,6 +125,17 @@ pcengine-rust-fast now adopts this crate: the board built against
 huc6280-rust `65c18df` and against this tree, nothing else different, the
 same five titles: **x1.075** and x1.073 in two runs on two efficiency cores
 (every title up in both, x1.045 to x1.113), after an A/A run of x0.996.
+
+**Issue 0005's cost** (the merge of huc6280-rust `43e5978`): the core now
+records the three lines at every bus access (`Pins::access`, the reference's
+`_confirm` override), a load and a store a cycle. Dormann's test, `2f4d4d2`
+against the merge, alternated on one pinned core: **x0.950** and x0.945 (best
+of 5 and of 7; an A/A run x1.002), 0.122 s against 0.129 s. Recording only
+when a request is pending, as the reference's `_confirm` does, is not
+equivalent here: the reference's confirming wrappers outlive an entry's or
+reset's `_deferred = None`, `Frame::access` does not, and a request a board
+makes through `pins.frame` arms the watch without passing through the lines.
+The board was not re-measured with it (the board's references are changing).
 
 | Other case | fork point | now | |
 | --- | ---: | ---: | ---: |
@@ -234,7 +254,7 @@ kept under `external/` (gitignored): `external/refcache` (rungs 1 and 4),
 recompute it from the reference.
 
 What each needs, as for huc6280-rust: Rust 1.85 or newer; Python 3 (standard
-library) for the scripts; huc6280-python `v0.3.0` in a venv
+library) for the scripts; huc6280-python `v0.4.0` in a venv
 (`scripts/fetch_huc6280python.sh`; PyPy runs it several times faster:
 `PYTHON=/path/to/pypy3`); the SingleStepTests vectors
 (`scripts/fetch_vectors.sh`, 185 MB); Dormann's source
@@ -267,8 +287,8 @@ Dormann or the CD case (the System Card and the disc directory are
 the board's `pce-profile` (SIGPROF sampling) with its `profile.py`, and the
 same sampler around Dormann for the core alone.
 
-**Seeded faults** (rung 6, `scripts/seeded_faults.py`): **27 caught, 0
-missed**: huc6280-rust's 24, each by the same check as there, and three on
+**Seeded faults** (rung 6, `scripts/seeded_faults.py`): **35 caught, 0
+missed**: huc6280-rust's 32, each by the same check as there, and three on
 this fork's shortcuts (the table in
 [docs/seeded-faults.md](docs/seeded-faults.md)):
 
@@ -276,7 +296,7 @@ this fork's shortcuts (the table in
 | --- | --- | --- | --- |
 | `row-mode-zpx-as-zp` | `dispatch.rs` | an arm of the dispatch from rows is built with zp for a zp,X row | rung 2 (SingleStepTests sample) |
 | `step-keeps-polled-i` | `cpu.rs` | the one-test boundary leaves out `polled_i`, so after CLI, SEI or PLP with nothing requested the frame never consumes it | rung 1 (directed lockstep) |
-| `step-drops-deferred` | `cpu.rs` | the one-test boundary forgets a request changed in the last cycle instead of leaving it for the next boundary | rung 4 (interrupt lockstep) |
+| `step-drops-deferred` | `cpu.rs` | the one-test boundary forgets a request changed in the last cycle instead of leaving it for the next boundary | rung 1 (directed lockstep; rung 4 before issue 0005, now that BRK leaves `NO_POLL` deferred) |
 
 **CI** (`.github/workflows/ci.yml`, main and pull requests): `cargo fmt
 --check`, `cargo clippy -D warnings` and `cargo test`, and, against the
@@ -301,8 +321,11 @@ Nothing found here is new: the places where huc6280-python's behaviour looked
 unintended were found while huc6280-rust was transcribed, and are its README's
 [Notes on the reference](https://github.com/alewman/huc6280-rust#notes-on-the-reference),
 filed in huc6280-python as
-[issue 0005](https://github.com/alewman/huc6280-python/blob/main/docs/issues/0005-interrupt-edge-cases-found-by-the-rust-port.md).
-This fork keeps every one of them, as the lockstep requires.
+[issue 0005](https://github.com/alewman/huc6280-python/blob/main/docs/issues/0005-interrupt-edge-cases-found-by-the-rust-port.md)
+and settled there in `v0.4.0`. This fork carries the settlement from
+huc6280-rust, as the lockstep requires; its one-test boundary in `step`
+needs nothing for it (the boundary it skips would not use the polled lines
+in `Part::step` either, and `execute_sequence` rewrites them on both paths).
 
 No GPL or LGPL source was copied, read or transcribed for this crate or for
 huc6280-rust. The only source transcribed is huc6280-python, which is ours

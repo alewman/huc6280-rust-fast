@@ -85,17 +85,19 @@ FAULTS = {
         "            VanishedInterrupt::Mesen2 => (polled & !TIQ_BIT) | (polled & live & TIQ_BIT),",
         "            VanishedInterrupt::Mesen2 => polled,",
     ),
-    # control.rs: every change of the lines moves lines_before, not only the first since an access.
-    "lines-before-every-change": (
+    # control.rs: a line the host changes between steps, after a change the poll missed, does not
+    # count for the next boundary (the polled lines are not updated bit by bit). Until issue 0005
+    # this fault was "lines-before-every-change", on the field the polled lines replaced.
+    "polled-lines-ignore-host": (
         "control.rs",
-        "        if self.frame.deferred.is_none() && lines != self.lines {",
-        "        if lines != self.lines {",
+        "            self.polled_lines = Some((polled_lines & !changed) | (lines & changed));",
+        "            self.polled_lines = Some(polled_lines);",
     ),
     # control.rs: irq_poll_cycle = Mednafen samples the timer like the other two lines.
     "mednafen-timer-sampled": (
         "control.rs",
-        "                _ => (pins.poll_lines & !TIQ_BIT) | (pins.lines & TIQ_BIT),",
-        "                _ => pins.poll_lines,",
+        "                Some((seen & !TIQ_BIT) | (lines & TIQ_BIT))",
+        "                Some(seen)",
     ),
     # control.rs: reset leaves the clock switch as it was (U10).
     "reset-keeps-speed": (
@@ -108,6 +110,38 @@ FAULTS = {
         "control.rs",
         "        self.pins.frame.polled = Some(NO_POLL);\n        self.pins.frame.deferred = None;\n        self.cycles\n    }\n\n    /// The frame's boundary decision",
         "        self.pins.frame.deferred = None;\n        self.cycles\n    }\n\n    /// The frame's boundary decision",
+    ),
+    # control.rs (issue 0005, item 1): the instruction a vanished entry runs skips step()'s
+    # deferred-to-polled bookkeeping, so a line raised in its last cycle is taken at once.
+    "vanished-skips-bookkeeping": (
+        "control.rs",
+        "                    if let Some(deferred) = frame.deferred.take() {\n                        frame.polled = Some(deferred);\n                    }\n",
+        "                    frame.deferred = None;\n",
+    ),
+    # control.rs (issue 0005, item 2): a change of the lines that leaves IRQ_LINE as it was (a swap
+    # of sources) does not arm the "does an access follow?" watch.
+    "swap-not-watched": (
+        "control.rs",
+        "            let requests = self.frame.requests;\n            self.frame.request(requests);\n",
+        "",
+    ),
+    # control.rs (issue 0005): the boundary keeps the polled lines instead of using them up.
+    "polled-lines-kept": (
+        "control.rs",
+        "        let polled_lines = pins.polled_lines.take();",
+        "        let polled_lines = pins.polled_lines;",
+    ),
+    # control.rs (issue 0005): reset leaves the lines the last poll saw.
+    "reset-keeps-polled-lines": (
+        "control.rs",
+        "        self.pins.frame.deferred = None;\n        self.pins.polled_lines = None;\n",
+        "        self.pins.frame.deferred = None;\n",
+    ),
+    # control.rs (issue 0005, item 4): BRK polls like an instruction.
+    "brk-polls": (
+        "control.rs",
+        "        self.pins.frame.deferred = Some(NO_POLL);",
+        "",
     ),
     # hudson.rs: ST0-ST2 write through the mapper (U12).
     "st-through-mapper": (
@@ -157,6 +191,19 @@ FAULTS = {
         "        self.t = self.p & T;\n        self.p &= !T;",
         "        self.t = self.p & T;",
     ),
+    # cpu.rs (issue 0005): a line changed after the last access is never remembered as changed
+    # after the poll: the boundary decides on the lines as they stand.
+    "polled-lines-never-set": (
+        "cpu.rs",
+        "            Some(pins.lines_at_access)\n",
+        "            None\n",
+    ),
+    # cpu.rs (issue 0005, item 3): restore_state forgets the lines the poll saw.
+    "restore-forgets-polled-lines": (
+        "cpu.rs",
+        "        pins.polled_lines = state.polled_irq_lines;",
+        "        pins.polled_lines = None;",
+    ),
     # cpu.rs: restore_state crosses IRQ1 and IRQ2.
     "restore-crosses-lines": (
         "cpu.rs",
@@ -172,8 +219,15 @@ FAULTS = {
     # trace.rs: the boundary a trace names puts IRQ1 above the timer.
     "boundary-priority": (
         "trace.rs",
-        "        if state.tiq && state.irq_disable & 4 == 0 {\n            return BoundaryKind::Tiq;\n        }\n        if state.irq1 && state.irq_disable & 2 == 0 {\n            return BoundaryKind::Irq1;\n        }",
-        "        if state.irq1 && state.irq_disable & 2 == 0 {\n            return BoundaryKind::Irq1;\n        }\n        if state.tiq && state.irq_disable & 4 == 0 {\n            return BoundaryKind::Tiq;\n        }",
+        "        if polled & live & 4 != 0 {\n            return BoundaryKind::Tiq;\n        }\n        if polled & 2 != 0 {\n            return BoundaryKind::Irq1;\n        }",
+        "        if polled & 2 != 0 {\n            return BoundaryKind::Irq1;\n        }\n        if polled & live & 4 != 0 {\n            return BoundaryKind::Tiq;\n        }",
+    ),
+    # trace.rs (issue 0005): the boundary a trace names goes by the lines as they stand, not as
+    # the poll saw them.
+    "boundary-live-lines": (
+        "trace.rs",
+        "            Some(lines) => lines & enabled,",
+        "            Some(_) => live,",
     ),
     # -- the fork's shortcuts --------------------------------------------------------------
     # dispatch.rs (the dispatch from constant rows): an arm is built with zp for a zp,X row.

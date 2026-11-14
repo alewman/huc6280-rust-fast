@@ -65,14 +65,26 @@ pub fn next_boundary(state: &CpuState) -> BoundaryKind {
         .unwrap_or(state.maskable_interrupt_pending);
     let masked = state.polled_i.unwrap_or(state.p & I != 0);
     if irq && !masked {
-        // The vector is chosen from the lines in priority order (HW HB-13).
-        if state.tiq && state.irq_disable & 4 == 0 {
+        // The vector is chosen from the lines the poll saw, in priority order
+        // (HW HB-13). The switches are not state: this is the defaults'
+        // decision (irq_poll_cycle SecondToLast, vanished_interrupt Mesen2:
+        // the timer must still be asserted, and with no source left an
+        // instruction runs; C18, issue 0005).
+        let enabled = !state.irq_disable & 7;
+        let live = ((state.tiq as u8) << 2 | (state.irq1 as u8) << 1 | state.irq2 as u8) & enabled;
+        let polled = match state.polled_irq_lines {
+            None => live,
+            Some(lines) => lines & enabled,
+        };
+        if polled & live & 4 != 0 {
             return BoundaryKind::Tiq;
         }
-        if state.irq1 && state.irq_disable & 2 == 0 {
+        if polled & 2 != 0 {
             return BoundaryKind::Irq1;
         }
-        return BoundaryKind::Irq2;
+        if polled & 1 != 0 {
+            return BoundaryKind::Irq2;
+        }
     }
     BoundaryKind::Instruction
 }
@@ -130,6 +142,7 @@ fn state_value(state: &CpuState) -> Value {
         "polled_maskable_interrupt": state.polled_maskable_interrupt,
         "polled_non_maskable_interrupt": state.polled_non_maskable_interrupt,
         "skipped_poll": state.skipped_poll,
+        "polled_irq_lines": state.polled_irq_lines,
     })
 }
 

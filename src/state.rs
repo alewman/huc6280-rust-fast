@@ -1,8 +1,9 @@
 //! Values for capturing and restoring HuC6280 processor state (`state.py`).
 //!
 //! Differences forced by Rust: the field widths are the types', so of the
-//! reference's constructor checks only two remain for [`CpuState::validate`]:
-//! `irq_disable` is three bits and B is not stored.
+//! reference's constructor checks only three remain for
+//! [`CpuState::validate`]: `irq_disable` and `polled_irq_lines` are three
+//! bits and B is not stored.
 
 use sixfiveohtwo::frame::PollFields;
 
@@ -13,8 +14,8 @@ use sixfiveohtwo::frame::PollFields;
 /// requests the host has made and the core has not yet taken, and what
 /// decides the next `step()`). Host memory, devices, scheduling and cycle
 /// counters are excluded: restoring this value restores the processor, not a
-/// machine. The fields from `halted` on are 6502-rust's frame's, as in its
-/// `CpuState`.
+/// machine. The fields from `halted` to `skipped_poll` are 6502-rust's
+/// frame's, as in its `CpuState`; `polled_irq_lines` is this core's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CpuState {
     pub a: u8,
@@ -51,9 +52,16 @@ pub struct CpuState {
     /// them.
     pub polled_maskable_interrupt: Option<bool>,
     pub polled_non_maskable_interrupt: Option<bool>,
-    /// The last step was an interrupt entry or reset, which do not poll: the
-    /// next boundary runs an instruction.
+    /// The last step was BRK, an interrupt entry or reset, which do not
+    /// poll: the next boundary runs an instruction.
     pub skipped_poll: bool,
+    /// The maskable lines the last instruction's poll saw (IRQ2, IRQ1, TIQ in
+    /// bits 0-2, the `$1403` layout), when a line changed after the poll, in
+    /// the instruction's last cycle; `None` when the poll saw `irq1`, `irq2`
+    /// and `tiq` as they stand. It picks the vector and decides a vanished
+    /// interrupt (C18). Added in issue 0005; `None`, the default, is how a
+    /// state from before it loads.
+    pub polled_irq_lines: Option<u8>,
 }
 
 impl Default for CpuState {
@@ -80,6 +88,7 @@ impl Default for CpuState {
             polled_maskable_interrupt: None,
             polled_non_maskable_interrupt: None,
             skipped_poll: false,
+            polled_irq_lines: None,
         }
     }
 }
@@ -100,10 +109,14 @@ impl CpuState {
     }
 
     /// Check what the reference's constructor enforces beyond the field
-    /// widths: `irq_disable` in 0..=7 and B (bit 4 of P) clear.
+    /// widths: `irq_disable` in 0..=7, `polled_irq_lines` `None` or in
+    /// 0..=7, and B (bit 4 of P) clear.
     pub fn validate(&self) -> Result<(), String> {
         if self.irq_disable > 7 {
             return Err("irq_disable must be an integer in range 0x00..0x07".into());
+        }
+        if matches!(self.polled_irq_lines, Some(lines) if lines > 7) {
+            return Err("polled_irq_lines must be an integer in range 0x00..0x07".into());
         }
         if self.p & 0x10 != 0 {
             return Err("p must have B (bit 4) clear: B is not stored".into());

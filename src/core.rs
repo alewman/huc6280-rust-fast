@@ -38,7 +38,9 @@
 //!   disable register, `high_speed`, the cycle's kind and the opcode.
 //! - The reference's frame swaps its bus callables for confirming wrappers
 //!   when a request changes; here every cycle calls `Frame::access` first,
-//!   which does the same check (6502-rust's difference, inherited).
+//!   which does the same check (6502-rust's difference, inherited), through
+//!   `Pins::access`, which also records the lines as the reference's
+//!   `_confirm` override does.
 //! - The mixins' class attributes (the named switches) are fields of
 //!   [`HuC6280`], the string-valued ones enums.
 //! - A handler that takes a function (`_modify`'s operation) takes a
@@ -133,7 +135,17 @@ pub struct Pins {
     pub(crate) opcode: u8,
     // The three maskable sources in the layout of $1402/$1403 (control.rs).
     pub(crate) lines: u8,
-    pub(crate) lines_before: u8,
+    /// The lines as they stood at the last bus access (kept up to date by
+    /// `Pins::access`): what the poll sees if a line changes in an
+    /// instruction's last cycle.
+    pub(crate) lines_at_access: u8,
+    /// The lines the last instruction's poll saw, set when a line changed
+    /// after it (in the last cycle) and only until the next boundary; `None`
+    /// when the poll saw the lines as they stand.
+    /// `CpuState::polled_irq_lines` (issue 0005).
+    pub(crate) polled_lines: Option<u8>,
+    /// The lines the boundary's interrupt decision counts, per
+    /// `irq_poll_cycle` (U25).
     pub(crate) poll_lines: u8,
     pub(crate) irq_disable: u8,
 }
@@ -146,7 +158,8 @@ impl Default for Pins {
             kind: Kind::Idle,
             opcode: 0,
             lines: 0,
-            lines_before: 0,
+            lines_at_access: 0,
+            polled_lines: None,
             poll_lines: 0,
             irq_disable: 0,
         }
@@ -154,6 +167,20 @@ impl Default for Pins {
 }
 
 impl Pins {
+    /// Make a bus access: confirm a request change made since the last one
+    /// (`Frame::access`), and record the lines as they stand (the reference's
+    /// `_confirm` override, which sets `_lines_at_access`).
+    ///
+    /// The reference's `_confirm` runs only on the first access after a
+    /// request change; every change of the lines arms it
+    /// ([`Pins::set_irq_lines`]), so recording at every access keeps the same
+    /// value.
+    #[inline]
+    pub(crate) fn access(&mut self) {
+        self.frame.access();
+        self.lines_at_access = self.lines;
+    }
+
     /// The current cycle's kind.
     #[inline]
     pub fn kind(&self) -> Kind {
@@ -296,7 +323,7 @@ impl<B: Bus> HuC6280<B> {
     pub(crate) fn cycle_read(&mut self, address: u16) -> u8 {
         self.pins.kind = Kind::Read;
         self.cycles += 1;
-        self.pins.frame.access();
+        self.pins.access();
         let physical = self.physical(address);
         self.bus.read(physical, &mut self.pins)
     }
@@ -306,7 +333,7 @@ impl<B: Bus> HuC6280<B> {
     pub(crate) fn cycle_write(&mut self, address: u16, value: u8) {
         self.pins.kind = Kind::Write;
         self.cycles += 1;
-        self.pins.frame.access();
+        self.pins.access();
         let physical = self.physical(address);
         self.bus.write(physical, value, &mut self.pins);
     }
@@ -315,7 +342,7 @@ impl<B: Bus> HuC6280<B> {
     pub(crate) fn cycle_write_physical(&mut self, address: u32, value: u8) {
         self.pins.kind = Kind::Write;
         self.cycles += 1;
-        self.pins.frame.access();
+        self.pins.access();
         self.bus.write(address, value, &mut self.pins);
     }
 
@@ -324,7 +351,7 @@ impl<B: Bus> HuC6280<B> {
     pub(crate) fn dummy(&mut self, address: u16) {
         self.pins.kind = Kind::Dummy;
         self.cycles += 1;
-        self.pins.frame.access();
+        self.pins.access();
         let physical = self.physical(address);
         self.bus.idle(Some(physical), &mut self.pins);
     }
@@ -334,7 +361,7 @@ impl<B: Bus> HuC6280<B> {
     pub(crate) fn io(&mut self) {
         self.pins.kind = Kind::Idle;
         self.cycles += 1;
-        self.pins.frame.access();
+        self.pins.access();
         self.bus.idle(None, &mut self.pins);
     }
 

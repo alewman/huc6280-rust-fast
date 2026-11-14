@@ -19,7 +19,7 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 use huc6280::trace::{next_boundary, BoundaryKind};
-use huc6280::{Bus, HuC6280, Pins};
+use huc6280::{Bus, CpuState, HuC6280, Pins};
 
 const HARDWARE_PAGE: u32 = 0x1FE000; // physical; offsets $0000-$1FFF within it
 const VDC_VCE_MASK: u32 = 0x1FF800; // (address & mask) == $1FE000: VDC and VCE
@@ -527,21 +527,34 @@ impl Replay {
             }
         }
         let name = found?;
+        if self.cpu.pc as u32 == line.registers[0] {
+            // Already at the handler: no entry to make, and no line left
+            // asserted (issue 0005).
+            return None;
+        }
         if name == "nmi" {
             self.cpu.request_non_maskable_interrupt();
         } else {
             self.cpu
                 .set_irq_lines(name == "irq1", name == "irq2", name == "tiq");
         }
-        if self.cpu.pc as u32 == line.registers[0] {
-            return None;
-        }
-        if next_boundary(&self.cpu.capture_state()) == BoundaryKind::Instruction {
+        let state = self.cpu.capture_state();
+        if next_boundary(&state) == BoundaryKind::Instruction {
             // The core's poll would wait an instruction (CLI, SEI or PLP
             // before it, or an entry): MAME took the interrupt now, so make
-            // the poll see the current I and count it.
+            // the poll see the current I and lines and count it.
             self.cpu.pins.frame.polled_i = None;
             self.cpu.pins.frame.polled = None;
+            // The reference also clears _polled_lines; Pins keeps it private,
+            // so it goes through a state with the poll agreeing (the frame's
+            // fields restored as they now stand, polled_irq_lines None).
+            let cleared = CpuState {
+                polled_irq_lines: None,
+                ..self.cpu.capture_state()
+            };
+            if state.polled_irq_lines.is_some() {
+                self.cpu.restore_state(&cleared).expect("a captured state");
+            }
             report.forced.add(name, 1);
             report.forced_after.add((name, previous), 1);
         }

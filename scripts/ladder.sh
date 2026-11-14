@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The fork's core gate: every change must leave this core identical to huc6280-rust (and so
-# to huc6280-python v0.3.0) on every inherited rung. The reference's side of each rung does not
+# to huc6280-python v0.4.0) on every inherited rung. The reference's side of each rung does not
 # change, so it is computed once and kept under external/ (rung 1 and 4 traces in
 # external/refcache, rung 2 verdicts in external/sst/reference-*, rung 3's line in
 # external/dormann/reference.txt, rung 5's reports in external/rung5/*.reference.txt); delete

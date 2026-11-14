@@ -4,6 +4,7 @@
 //! switches, and state capture and restore. The proof of equivalence with
 //! huc6280-python is the ladder (`scripts/rung*.sh`), not these.
 
+use huc6280::trace::{next_boundary, BoundaryKind};
 use huc6280::{
     Bus, CpuState, DecimalFormula, HuC6280, Kind, Pins, VanishedInterrupt, OPCODES, T, VDC_ADDRESS,
 };
@@ -273,4 +274,233 @@ fn a_state_is_captured_and_restored_whole() {
         ..CpuState::default()
     };
     assert!(other.restore_state(&bad).is_err()); // B is not stored
+}
+
+// -- issue 0005: the poll rule (U21, U25) at the edges this port found --------
+// The rule: the poll sees the lines as they stood at the end of an
+// instruction's second-to-last cycle; a change in the last cycle waits for the
+// next instruction's poll. BRK, entries and reset do not poll. A capture and
+// restore at any boundary changes nothing. These mirror the reference's
+// tests/test_directed.py, "issue 0005", case for case.
+
+const CLI: u8 = 0x58;
+const NOP: u8 = 0xEA;
+const BRK: u8 = 0x00;
+const TIQ_ONLY: Lines = (false, false, true);
+const IRQ1_ONLY: Lines = (true, false, false);
+const NONE: Lines = (false, false, false);
+
+/// 2 MB of RAM, a schedule of line changes made from inside the callback of
+/// the given bus cycle (counted from 0 over the whole run), and an NMI
+/// requested in the given read.
+struct Scheduled {
+    memory: Vec<u8>,
+    count: usize,
+    reads: usize,
+    schedule: Vec<(usize, Lines)>,
+    nmi_at_read: Option<usize>,
+}
+
+impl Scheduled {
+    fn tick(&mut self, pins: &mut Pins) {
+        let index = self.count;
+        self.count += 1;
+        if let Some(&(_, (irq1, irq2, tiq))) = self.schedule.iter().find(|(at, _)| *at == index) {
+            pins.set_irq_lines(irq1, irq2, tiq);
+        }
+    }
+}
+
+impl Bus for Scheduled {
+    fn read(&mut self, address: u32, pins: &mut Pins) -> u8 {
+        self.reads += 1;
+        if self.nmi_at_read == Some(self.reads) {
+            pins.frame.request_non_maskable_interrupt();
+        }
+        self.tick(pins);
+        self.memory[address as usize]
+    }
+    fn write(&mut self, address: u32, value: u8, pins: &mut Pins) {
+        self.tick(pins);
+        self.memory[address as usize] = value;
+    }
+    fn idle(&mut self, _address: Option<u32>, pins: &mut Pins) {
+        self.tick(pins);
+    }
+}
+
+/// `program` at logical $4000 with `start` asserted, the reference's test
+/// host's mapping (MPR = $00 $F8 $01 $02 $03 $04 $05 $00). Handlers are NOPs:
+/// TIQ -> $6200, IRQ1 -> $6100, IRQ2 and BRK -> $6000, NMI -> $6300.
+fn scheduled(
+    program: &[u8],
+    start: Lines,
+    schedule: &[(usize, Lines)],
+    mode: Option<VanishedInterrupt>,
+) -> HuC6280<Scheduled> {
+    let mut memory = vec![0; 0x200000];
+    memory[0x2000..0x2000 + program.len()].copy_from_slice(program); // logical $4000
+    memory[0x4000..0x4400].fill(NOP); // logical $6000-$63FF (MPR3 = $02)
+    for (vector, target) in [
+        (0xFFF6u16, 0x6000u16),
+        (0xFFF8, 0x6100),
+        (0xFFFA, 0x6200),
+        (0xFFFC, 0x6300),
+    ] {
+        let at = (vector - 0xE000) as usize;
+        memory[at] = target as u8;
+        memory[at + 1] = (target >> 8) as u8;
+    }
+    let mut cpu = HuC6280::new(Scheduled {
+        memory,
+        count: 0,
+        reads: 0,
+        schedule: schedule.to_vec(),
+        nmi_at_read: None,
+    });
+    cpu.mpr = [0x00, 0xF8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x00];
+    cpu.pc = 0x4000;
+    cpu.s = 0xFF;
+    cpu.p = 0x04;
+    if let Some(mode) = mode {
+        cpu.vanished_interrupt = mode;
+    }
+    cpu.set_irq_lines(start.0, start.1, start.2);
+    cpu
+}
+
+/// PC after each step; with `restore_at`, a capture and restore before that step.
+fn trail(cpu: &mut HuC6280<Scheduled>, steps: usize, restore_at: Option<usize>) -> Vec<u16> {
+    let mut trail = Vec::new();
+    for index in 0..steps {
+        if restore_at == Some(index) {
+            let state = cpu.capture_state();
+            cpu.restore_state(&state).unwrap();
+        }
+        cpu.step();
+        trail.push(cpu.pc);
+    }
+    trail
+}
+
+/// CLI; NOP x4. TIQ drops in the first NOP's last cycle (cycle 3): the entry
+/// after it finds nothing (C18, Mesen2's rule) and runs the second NOP; IRQ1
+/// rises in that NOP's last cycle (5).
+fn vanished_then_rising() -> HuC6280<Scheduled> {
+    scheduled(
+        &[CLI, NOP, NOP, NOP, NOP],
+        TIQ_ONLY,
+        &[(3, NONE), (5, IRQ1_ONLY)],
+        None,
+    )
+}
+
+/// CLI; NOP x3 with TIQ up; in the first NOP's last cycle TIQ drops and IRQ1 rises.
+fn swapped() -> HuC6280<Scheduled> {
+    scheduled(&[CLI, NOP, NOP, NOP], TIQ_ONLY, &[(3, IRQ1_ONLY)], None)
+}
+
+/// CLI; NOP; NOP with IRQ1 up, dropped in the first NOP's last cycle: taken (Mesen2, C18).
+fn dropped() -> HuC6280<Scheduled> {
+    scheduled(&[CLI, NOP, NOP], IRQ1_ONLY, &[(3, NONE)], None)
+}
+
+#[test]
+fn issue_0005_a_line_rising_in_a_vanished_entrys_instruction_waits_for_the_next_poll() {
+    // Item 1: as after any other instruction (U21, U25 default), one more instruction runs.
+    let expected = vec![0x4001, 0x4002, 0x4003, 0x4004, 0x6100];
+    assert_eq!(trail(&mut vanished_then_rising(), 5, None), expected);
+    let mut plain = scheduled(&[CLI, NOP, NOP, NOP, NOP], NONE, &[(5, IRQ1_ONLY)], None);
+    assert_eq!(trail(&mut plain, 5, None), expected);
+}
+
+#[test]
+fn issue_0005_a_source_swapped_in_the_last_cycle_is_not_taken_at_that_boundary() {
+    // Item 2: the poll saw TIQ only. By default TIQ has gone (dropped, C18)
+    // and IRQ1, which rose after the poll, waits for the next instruction's poll.
+    assert_eq!(
+        trail(&mut swapped(), 4, None),
+        vec![0x4001, 0x4002, 0x4003, 0x6100]
+    );
+    // Latched takes what the poll saw, through its own vector: TIQ.
+    let mut latched = scheduled(
+        &[CLI, NOP, NOP, NOP],
+        TIQ_ONLY,
+        &[(3, IRQ1_ONLY)],
+        Some(VanishedInterrupt::Latched),
+    );
+    assert_eq!(*trail(&mut latched, 3, None).last().unwrap(), 0x6200);
+}
+
+#[test]
+fn issue_0005_capture_and_restore_keep_the_lines_the_poll_saw() {
+    // Item 3: the lines the poll saw are state (CpuState::polled_irq_lines).
+    let mut cpu = dropped();
+    cpu.step();
+    cpu.step();
+    let state = cpu.capture_state();
+    assert_eq!(state.polled_irq_lines, Some(0x02));
+    assert!(!state.irq1);
+    assert_eq!(next_boundary(&state), BoundaryKind::Irq1);
+    cpu.restore_state(&state).unwrap();
+    cpu.step();
+    assert_eq!(cpu.pc, 0x6100);
+
+    let mut swapped = swapped();
+    swapped.step();
+    swapped.step();
+    let state = swapped.capture_state();
+    assert_eq!(state.polled_irq_lines, Some(0x04)); // TIQ, $1403 layout
+                                                    // The timer the poll saw has gone and IRQ1 rose after it: an instruction runs.
+    assert_eq!(next_boundary(&state), BoundaryKind::Instruction);
+    swapped.step();
+    assert_eq!(swapped.capture_state().polled_irq_lines, None); // until the next boundary only
+}
+
+#[test]
+fn issue_0005_a_round_trip_at_any_boundary_changes_nothing() {
+    let steps = 6;
+    for scenario in [vanished_then_rising, swapped, dropped] {
+        let expected = trail(&mut scenario(), steps, None);
+        for boundary in 0..steps {
+            assert_eq!(
+                trail(&mut scenario(), steps, Some(boundary)),
+                expected,
+                "restored before step {boundary}"
+            );
+        }
+    }
+}
+
+#[test]
+fn issue_0005_a_state_from_before_the_field_loads_as_the_poll_agreeing() {
+    assert_eq!(CpuState::default().polled_irq_lines, None);
+    let bad = CpuState {
+        polled_irq_lines: Some(8),
+        ..CpuState::default()
+    };
+    let error = dropped().restore_state(&bad).unwrap_err();
+    assert!(error.contains("polled_irq_lines"), "{error}");
+    let good = CpuState {
+        polled_irq_lines: Some(7),
+        ..CpuState::default()
+    };
+    let mut cpu = dropped();
+    cpu.restore_state(&good).unwrap();
+    assert_eq!(cpu.capture_state(), good);
+}
+
+#[test]
+fn issue_0005_brk_does_not_poll() {
+    // Item 4: BRK is the interrupt sequence (an entry is BRK with its opcode
+    // forced) and, like an entry and as on the 6502 (the frame's rule), does
+    // not poll: an NMI latched during it waits for the handler's first
+    // instruction. Only NMI shows it (BRK sets I); NMI is not connected on a
+    // PC Engine.
+    let mut cpu = scheduled(&[BRK, 0x00], NONE, &[], None);
+    cpu.bus.nmi_at_read = Some(2); // the signature byte: well before BRK's last cycle
+    cpu.step();
+    assert_eq!(cpu.pc, 0x6000);
+    assert!(cpu.capture_state().skipped_poll);
+    assert_eq!(trail(&mut cpu, 2, None), vec![0x6001, 0x6300]);
 }

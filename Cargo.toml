@@ -1,6 +1,6 @@
 [package]
 name = "huc6280-rust-fast"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.85"
 description = "A speed fork of huc6280-rust, the Rust Hudson HuC6280 core, held in lockstep with it"

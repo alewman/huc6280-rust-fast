@@ -99,6 +99,7 @@ def main() -> int:
             int(state.maskable_interrupt_pending), int(state.non_maskable_interrupt_pending),
             tri(state.polled_i), tri(state.polled_maskable_interrupt),
             tri(state.polled_non_maskable_interrupt), int(state.skipped_poll),
+            8 if state.polled_irq_lines is None else state.polled_irq_lines,
         ):
             digest = ((digest ^ value) * PRIME) & MASK
         bus.digest = digest

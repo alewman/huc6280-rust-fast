@@ -132,6 +132,7 @@ fn fold_state(bus: &mut Noise, state: &CpuState, cycles: u32) {
         tri(state.polled_maskable_interrupt),
         tri(state.polled_non_maskable_interrupt),
         state.skipped_poll as u64,
+        state.polled_irq_lines.map_or(8, u64::from),
     ] {
         bus.fold(value);
     }
