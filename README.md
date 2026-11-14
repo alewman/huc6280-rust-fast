@@ -111,6 +111,12 @@ Frames per second of pcengine-rust-fast (`pce-bench`, its fat-LTO profile)
 built against each core. Under wasm: the board's `wasm-bench` under Node 22
 (`scripts/ab_wasm.py`, 1,200 frames).
 
+Re-measured after the merge (2026-11-13, load average about 11 to 14), as
+pcengine-rust-fast now adopts this crate: the board built against
+huc6280-rust `65c18df` and against this tree, nothing else different, the
+same five titles: **x1.075** and x1.073 in two runs on two efficiency cores
+(every title up in both, x1.045 to x1.113), after an A/A run of x0.996.
+
 | Other case | fork point | now | |
 | --- | ---: | ---: | ---: |
 | **A CD game**: Ryuuko no Ken on pcenginecd-rust (System Card 3.0, Arcade Card, 1,500 frames from power-on, fat LTO as play-pce builds) | 187.0 fps | 199.3 fps | **x1.065** (x1.039 in a first run; Mad Stalker x1.036) |
