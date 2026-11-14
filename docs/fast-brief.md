@@ -1,5 +1,11 @@
 # Brief: huc6280-rust-fast
 
+> **This is the brief the fork was built from (2026-11-13), kept as written**, with "What was
+> built" appended at the end by the session that built it. Its instructions ("do not push", the
+> working rules, the local paths under `/data/emu/`, which are the author's machine) are history,
+> not instructions to a reader. The [README](../README.md) is the current account; where the two
+> differ, the README is right.
+
 ## The request
 
 Aubrey, 2026-11-13: "we need the fast fork for these", after play-pce went live at

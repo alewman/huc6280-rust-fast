@@ -49,3 +49,18 @@ bus folds `pins.high_speed` into the digest in every cycle (the MAME replay's
 harness counts master clocks from it too, but the replay is not among the
 checks the fault runner makes).
 Dormann's test is second in the order and caught nothing first.
+
+## This fork's three
+
+huc6280-rust-fast keeps the 24 above, each still caught by the same check,
+and adds one fault on each shortcut it takes (run of 2026-11-13 at `aad85b2`,
+the last commit that changed the core's code: **27 caught, 0 missed**):
+
+| Fault | Module | What it changes | Caught by |
+| --- | --- | --- | --- |
+| `row-mode-zpx-as-zp` | `dispatch.rs` | an arm of the dispatch from rows is built with zp for a zp,X row | rung 2 (SingleStepTests sample) |
+| `step-keeps-polled-i` | `cpu.rs` | the one-test boundary leaves out `polled_i`, so after CLI, SEI or PLP with nothing requested the frame never consumes it | rung 1 (directed lockstep) |
+| `step-drops-deferred` | `cpu.rs` | the one-test boundary forgets a request changed in the last cycle instead of leaving it for the next boundary | rung 4 (interrupt lockstep) |
+
+(`e2-is-cla` and `tst-form` edit the table, which the dispatch from rows
+reads at compile time: still caught by the same rungs.)
