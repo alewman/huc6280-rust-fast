@@ -27,8 +27,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SYSCARD = "/data/emu/share/batocera/bios/syscard3.pce"
-LIBCD = "/data/emu/roms-retrobat/pcenginecd"
+# The defaults are the author's layout: set SYSCARD (the System Card 3.0 image) and LIBCD (the
+# directory of .chd discs) to your own.
+SYSCARD = os.environ.get("SYSCARD", "/data/emu/share/batocera/bios/syscard3.pce")
+LIBCD = os.environ.get("LIBCD", "/data/emu/roms-retrobat/pcenginecd")
 DISC = "Ryuuko no Ken (Japan) (En,Ja,Es) (FACT)"
 
 

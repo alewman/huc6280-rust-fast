@@ -35,6 +35,20 @@ open(path, "w").write(text.replace(old, new))
 PY
 }
 
+# replace the board's CPU core dependency (the line starting `huc6280 = `, whichever crate and
+# source it names: pcengine-rust-fast now depends on this crate itself)
+repoint_core() {
+    python3 - "$1" "$2" <<'PY'
+import re
+import sys
+path, new = sys.argv[1:]
+text = open(path).read()
+text, count = re.subn(r"(?m)^huc6280 = \{.*\}$", lambda _: new, text)
+assert count == 1, (path, count)
+open(path, "w").write(text)
+PY
+}
+
 export_repo() { # REPO DEST
     mkdir -p "$2"
     git -C "$1" archive HEAD | tar -x -C "$2"
@@ -44,8 +58,7 @@ case "${1:-}" in
 setup)
     [ -d "$S/board" ] || {
         export_repo "$BOARD_REPO" "$S/board"
-        repoint "$S/board/Cargo.toml" 'huc6280 = { package = "huc6280-rust", path = "../huc6280-rust" }' \
-            'huc6280 = { package = "huc6280-rust-fast", path = "../.." }'
+        repoint_core "$S/board/Cargo.toml" 'huc6280 = { package = "huc6280-rust-fast", path = "../.." }'
         mkdir -p "$S/board/external" "$S/board/scratch"
         cp -a "$BOARD_REPO/external/refcache" "$S/board/external/"
         cp "$BOARD_REPO/scratch/probe.pce" "$S/board/scratch/"
@@ -79,8 +92,7 @@ rev)
     if [ ! -d "$T" ]; then
         mkdir -p "$T"
         export_repo "$BOARD_REPO" "$T/board"
-        repoint "$T/board/Cargo.toml" 'huc6280 = { package = "huc6280-rust", path = "../huc6280-rust" }' \
-            "huc6280 = { package = \"huc6280-rust-fast\", path = \"$CORE\" }"
+        repoint_core "$T/board/Cargo.toml" "huc6280 = { package = \"huc6280-rust-fast\", path = \"$CORE\" }"
         if [ "$VARIANT" = -quiet ]; then
             # what the board fork would add to take the core's quiet window
             patch -s -d "$T/board" -p1 < "$ROOT/scripts/board-quiet.patch"
