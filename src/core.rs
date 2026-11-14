@@ -6,7 +6,7 @@
 //! [`Pins::kind`] while the callback runs:
 //!
 //! - [`Kind::Read`]: [`Bus::read`]; the opcode fetch is the first cycle.
-//! - [`Kind::Write`]: [`Bus::write`], the value the chip drives.
+//! - [`Kind::Write`][]: [`Bus::write`], the value the chip drives.
 //! - [`Kind::Dummy`]: [`Bus::idle`] with `Some(address)`; a read the chip
 //!   makes and throws away, at the address given (the byte after the opcode
 //!   for an implied instruction).

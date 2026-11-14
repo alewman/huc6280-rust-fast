@@ -5,6 +5,8 @@ edition = "2021"
 rust-version = "1.85"
 description = "A speed fork of huc6280-rust, the Rust Hudson HuC6280 core, held in lockstep with it"
 license = "MIT"
+repository = "https://github.com/alewman/huc6280-rust-fast"
+readme = "README.md"
 publish = false
 
 [lib]

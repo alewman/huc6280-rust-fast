@@ -1,5 +1,12 @@
 # Handoff brief: huc6280-rust
 
+> **This is the brief the crate was built from (2026-11-12), kept as written**, with "What was
+> built" appended at the end by the session that built it. Its instructions ("do not push", the
+> working rules, the local paths under `/data/emu/` and `~/.local/opt/`, which are the author's
+> machine) are history, not instructions to a reader. The [README](../README.md) is the current
+> account; where the two differ, the README is right (for example, clippy now runs and passes
+> locally and in CI, which the last paragraph below says it could not).
+
 ## The request
 
 Aubrey, 2026-11-12, after the PC Engine family's Python release (huc6280-python 0.3.0,

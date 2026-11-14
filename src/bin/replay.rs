@@ -295,7 +295,7 @@ impl<K: PartialEq + Clone> Counter<K> {
     /// The `n` most common, ties in arrival order (`Counter.most_common`).
     fn most_common(&self, n: usize) -> Vec<(K, u64)> {
         let mut items = self.0.clone();
-        items.sort_by(|a, b| b.1.cmp(&a.1));
+        items.sort_by_key(|item| std::cmp::Reverse(item.1)); // stable: ties keep arrival order
         items.truncate(n);
         items
     }

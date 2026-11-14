@@ -59,3 +59,8 @@ pub use crate::core::{Bus, HuC6280, Kind, Pins, B, C, D, I, N, STACK_PAGE, T, V,
 pub use crate::dispatch::{Form, Mode, Op, Row, OPCODES};
 pub use crate::hudson::{TmaMultiple, VDC_ADDRESS};
 pub use crate::state::CpuState;
+
+/// The README's example compiles and runs as a doctest.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;
