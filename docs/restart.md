@@ -71,7 +71,7 @@ locally).
 | rung 3: Dormann | success at `$5675` after 20,936,652 instructions | the same |
 | rung 4: interrupt lockstep | 65 of 65 files (nine mode pairs), 925,600 boundaries | 38 of 38 (four mode pairs), 510,400 boundaries |
 | rung 5: six MAME replays and the synthetic runs | 6 of 6 reports and digests, 21,013,980 instructions; synthetic digests identical | byte for byte the same output (the alternate run under `Drop` where it had `Latched`: the same digests, as expected under poll `Last`) |
-| rung 6: seeded faults | 32 caught, 0 missed | 40 faults (27 kept, 13 on the rewrite's code); run pending |
+| rung 6: seeded faults | 32 caught, 0 missed | 40 caught, 0 missed (27 kept, 13 on the rewrite's code; one equivalent fault replaced) |
 | clippy `-D warnings`, rustup 1.93.1 and stable 1.99.1 (own target dirs) | clean | clean |
 
 Nothing here was run on hardware; the gate is the reference, which is itself judged by the

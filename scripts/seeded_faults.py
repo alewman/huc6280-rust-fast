@@ -295,11 +295,13 @@ FAULTS = {
         "            Some(polled_i) => polled_i,",
         "            Some(_) => self.p & I,",
     ),
-    # control.rs: irq_poll_cycle Last takes a masked line.
-    "last-ignores-disable": (
+    # control.rs: irq_poll_cycle Last takes a line while I is set. (Its sibling, Last deciding on
+    # a masked line, is an equivalent fault: the entry's vector finds nothing enabled and runs the
+    # instruction with step()'s bookkeeping, which no rung can tell from the plain path; dropped.)
+    "last-ignores-i": (
         "control.rs",
         "        if pins.lines & !pins.irq_disable & 7 != 0 && i_flag == 0 {",
-        "        if pins.lines & 7 != 0 && i_flag == 0 {",
+        "        if pins.lines & !pins.irq_disable & 7 != 0 {",
     ),
 }
 
