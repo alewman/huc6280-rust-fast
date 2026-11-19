@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """Write src/dispatch.rs from the reference's ``OPCODES`` dict (run once, kept for the record).
 
     external/huc6280-python/.venv/bin/python scripts/make_dispatch.py > src/dispatch.rs
@@ -12,6 +13,7 @@ from __future__ import annotations
 from huc6280._dispatch import FORM_BYTES, OPCODES
 
 HEADER = '''\
+// SPDX-License-Identifier: MIT
 //! The opcode map: handler, addressing mode, mnemonic, operand form and base
 //! cycles (`_dispatch.py`).
 //!

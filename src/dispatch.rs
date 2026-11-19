@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! The opcode map: handler, addressing mode, mnemonic, operand form and base
 //! cycles (`_dispatch.py`).
 //!

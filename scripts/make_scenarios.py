@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """Write the lockstep scenarios (rungs 1 and 4) into external/scenarios/.
 
 Every program here is generated or hand-assembled from the bytes below, so
@@ -24,6 +25,9 @@ acknowledges the timer in its last cycle, block transfers and CSL/CSH in the
 main loop) under seeded random line changes between steps and inside bus
 cycles, in every ``irq_poll_cycle`` and ``vanished_interrupt`` mode;
 ``sweep-*`` raise or drop one line at each cycle of a fixed program in turn.
+The modes are the reference's since its clean rewrite (6ce348e): ``"latched"``
+and ``"mednafen"`` are withdrawn there (``ValueError``). The random scenarios
+keep the seeds they had when those modes were run, so a kept one is the same file.
 """
 
 from __future__ import annotations
@@ -314,12 +318,17 @@ def main() -> int:
 
     seeds = 1 if args.quick else 3
     steps = 4_000 if args.quick else 20_000
+    withdrawn = ("mednafen", "latched")
+    index = len(scenarios)
     for poll in ("second_to_last", "last", "mednafen"):
         for vanished in ("mesen2", "latched", "drop"):
             for seed in range(seeds):
+                index += 1
+                if poll in withdrawn or vanished in withdrawn:
+                    continue  # the seed it had stays reserved
                 switches = {"irq_poll_cycle": poll, "vanished_interrupt": vanished}
                 name = f"irq-{poll}-{vanished}-{seed}"
-                scenarios[name] = fuzz(100 + len(scenarios), steps, switches)
+                scenarios[name] = fuzz(100 + index - 1, steps, switches)
     scenarios["irq-entry7"] = fuzz(900, steps, {"interrupt_entry_cycles": 7})
     scenarios["irq-entry7-last"] = fuzz(901, steps, {"interrupt_entry_cycles": 7, "irq_poll_cycle": "last"})
 
@@ -335,8 +344,8 @@ def main() -> int:
     }
     # A file may hold a list of scenarios, run one after another: one file a line and mode.
     span = range(40, 200, 4 if args.quick else 1)
-    for poll in ("second_to_last", "last", "mednafen"):
-        for vanished in ("mesen2", "latched"):
+    for poll in ("second_to_last", "last"):
+        for vanished in ("mesen2", "drop"):
             switches = {"irq_poll_cycle": poll, "vanished_interrupt": vanished}
             for name, action in changes.items():
                 scenarios[f"sweep-{poll}-{vanished}-{name}"] = [

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """Rung 2's verdict: do the two cores judge every SingleStepTests case alike?
 
     compare_sst.py REFERENCE_DIR RUST_DIR

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """Rung 2, the reference's half: every SingleStepTests huc6280 case on huc6280-python.
 
     reference_sst.py CORPUS_DIR OUT_DIR [--limit N] [--formula mesen] [--jobs N]

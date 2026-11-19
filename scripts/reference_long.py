@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """Rung 5 without MAME traces, the reference's half: ``target/release/long`` on huc6280-python.
 
     reference_long.py SEED STEPS [--alternate]
@@ -24,7 +25,7 @@ ALTERNATE = {
     "decimal_formula": "mesen", "sbc_honours_t": True, "tsb_z_from_test": True,
     "tma_multiple": "highest", "zero_page_pointer_wraps": False,
     "block_reads_hardware_page_as_zero": False, "nop_63_cycles": 4, "interrupt_entry_cycles": 7,
-    "irq_poll_cycle": "last", "vanished_interrupt": "latched",
+    "irq_poll_cycle": "last", "vanished_interrupt": "drop",  # "latched" withdrawn; same under "last"
 }
 
 

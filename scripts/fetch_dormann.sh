@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # Klaus Dormann's 65C02 extended opcodes test (GPL-3.0; a test program, fetched,
 # never committed), where the reference's scripts/dormann_to_ca65.py looks for
 # it: external/huc6280-python/reference/src/dormann/.

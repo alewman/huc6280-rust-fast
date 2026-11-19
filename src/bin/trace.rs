@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Run a scenario and write its boundary trace (rungs 1 and 4).
 //!
 //!     trace SCENARIO.json [--out TRACE.jsonl]
@@ -176,14 +177,12 @@ fn set_switches(cpu: &mut HuC6280<Host>, switches: &Switches) {
         cpu.irq_poll_cycle = match name.as_str() {
             "second_to_last" => IrqPollCycle::SecondToLast,
             "last" => IrqPollCycle::Last,
-            "mednafen" => IrqPollCycle::Mednafen,
             other => panic!("unknown irq_poll_cycle {other}"),
         };
     }
     if let Some(name) = &switches.vanished_interrupt {
         cpu.vanished_interrupt = match name.as_str() {
             "mesen2" => VanishedInterrupt::Mesen2,
-            "latched" => VanishedInterrupt::Latched,
             "drop" => VanishedInterrupt::Drop,
             other => panic!("unknown vanished_interrupt {other}"),
         };

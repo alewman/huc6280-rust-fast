@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # Rung 5: a long program on both cores.
 #
 # Where MAME traces of real games are present (the reference's

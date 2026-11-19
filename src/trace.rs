@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Boundary traces in the reference's version 1 JSON Lines schema
 //! (`trace.py` and the parts of `debug.py` a trace needs; 6502-python
 //! `docs/trace-schema.md`).

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """Rung 6. A gate that cannot fail proves nothing: build the crate with one fault at a
 time and check that some rung catches each.
 
@@ -37,18 +38,6 @@ FAULTS = {
         "            zp.wrapping_add(1) as u16\n",
         "            zp as u16 + 1\n",
     ),
-    # alu.rs: the default decimal formula carries as Mesen's does (differs for invalid digits only).
-    "mednafen-adds-as-mesen": (
-        "alu.rs",
-        "        DecimalFormula::Mednafen => 16 * sixteens + ones,",
-        "        DecimalFormula::Mednafen => 16 * (sixteens + if ones >= 16 { 1 } else { 0 }) + ones % 16,",
-    ),
-    # alu.rs: decimal mode clears V as binary mode does (U14 says it is left alone).
-    "decimal-touches-v": (
-        "alu.rs",
-        "        result = decimal_add(a, operand, carry, formula);\n        p &= !(N | Z | C);",
-        "        result = decimal_add(a, operand, carry, formula);\n        p &= !(N | V | Z | C);",
-    ),
     # alu.rs: T mode writes the result to A as well.
     "memory-mode-keeps-a": (
         "alu.rs",
@@ -79,12 +68,6 @@ FAULTS = {
         "        self.pins.frame.polled_i = Some(self.p & I); // U21\n        self.p &= !I;",
         "        self.p &= !I;",
     ),
-    # control.rs: a timer interrupt whose source has gone is entered anyway (C18).
-    "vanished-timer-taken": (
-        "control.rs",
-        "            VanishedInterrupt::Mesen2 => (polled & !TIQ_BIT) | (polled & live & TIQ_BIT),",
-        "            VanishedInterrupt::Mesen2 => polled,",
-    ),
     # control.rs: a line the host changes between steps, after a change the poll missed, does not
     # count for the next boundary (the polled lines are not updated bit by bit). Until issue 0005
     # this fault was "lines-before-every-change", on the field the polled lines replaced.
@@ -92,12 +75,6 @@ FAULTS = {
         "control.rs",
         "            self.polled_lines = Some((polled_lines & !changed) | (lines & changed));",
         "            self.polled_lines = Some(polled_lines);",
-    ),
-    # control.rs: irq_poll_cycle = Mednafen samples the timer like the other two lines.
-    "mednafen-timer-sampled": (
-        "control.rs",
-        "                Some((seen & !TIQ_BIT) | (lines & TIQ_BIT))",
-        "                Some(seen)",
     ),
     # control.rs: reset leaves the clock switch as it was (U10).
     "reset-keeps-speed": (
@@ -108,8 +85,8 @@ FAULTS = {
     # control.rs: an interrupt entry polls like an instruction.
     "entry-polls": (
         "control.rs",
-        "        self.pins.frame.polled = Some(NO_POLL);\n        self.pins.frame.deferred = None;\n        self.cycles\n    }\n\n    /// The frame's boundary decision",
-        "        self.pins.frame.deferred = None;\n        self.cycles\n    }\n\n    /// The frame's boundary decision",
+        "        self.pins.frame.polled = Some(NO_POLL);\n        self.pins.frame.deferred = None;\n        self.cycles\n    }\n\n    /// The interrupt this boundary takes",
+        "        self.pins.frame.deferred = None;\n        self.cycles\n    }\n\n    /// The interrupt this boundary takes",
     ),
     # control.rs (issue 0005, item 1): the instruction a vanished entry runs skips step()'s
     # deferred-to-polled bookkeeping, so a line raised in its last cycle is taken at once.
@@ -124,12 +101,6 @@ FAULTS = {
         "control.rs",
         "            let requests = self.frame.requests;\n            self.frame.request(requests);\n",
         "",
-    ),
-    # control.rs (issue 0005): the boundary keeps the polled lines instead of using them up.
-    "polled-lines-kept": (
-        "control.rs",
-        "        let polled_lines = pins.polled_lines.take();",
-        "        let polled_lines = pins.polled_lines;",
     ),
     # control.rs (issue 0005): reset leaves the lines the last poll saw.
     "reset-keeps-polled-lines": (
@@ -249,6 +220,86 @@ FAULTS = {
         "cpu.rs",
         "            frame.deferred = None;\n            frame.polled = Some(deferred);",
         "            frame.deferred = None;\n            let _ = deferred;",
+    ),
+    # -- on the clean rewrite's code (huc6280-python 6ce348e; the faults on the withdrawn code
+    # were moved aside with it) --
+    # alu.rs: the default decimal formula adds digit by digit, as "mesen" does.
+    "mednafen-adds-as-mesen": (
+        "alu.rs",
+        "    let mut low = (a & 0x0F) + (operand & 0x0F) + carry;\n    if formula == DecimalFormula::Mesen {",
+        "    let mut low = (a & 0x0F) + (operand & 0x0F) + carry;\n    if formula == DecimalFormula::Mesen || formula == DecimalFormula::Mednafen {",
+    ),
+    # alu.rs: the default decimal SBC subtracts $60 only when the high digit borrows on its own.
+    "mednafen-subtract-borrow": (
+        "alu.rs",
+        "    if difference < 0 {\n        result -= 0x60;",
+        "    if difference < -0x0F {\n        result -= 0x60;",
+    ),
+    # alu.rs: "mesen" SBC's high digit ignores the low digit's borrow.
+    "mesen-subtract-no-borrow": (
+        "alu.rs",
+        "        let mut high = (a >> 4) - (operand >> 4) - (low < 0) as i32;",
+        "        let mut high = (a >> 4) - (operand >> 4);",
+    ),
+    # alu.rs: decimal ADC clears V (it must leave it as it was).
+    "decimal-touches-v": (
+        "alu.rs",
+        "        let (result, carry_out) = decimal_add(a, operand, carry, formula);\n        return (\n            result,\n            (p & !(N | Z | C))",
+        "        let (result, carry_out) = decimal_add(a, operand, carry, formula);\n        return (\n            result,\n            (p & !(N | V | Z | C))",
+    ),
+    # control.rs: by default a vanished timer is taken as the poll saw it (C18).
+    "vanished-timer-taken": (
+        "control.rs",
+        "            VanishedInterrupt::Mesen2 => (seen & (IRQ1_BIT | IRQ2_BIT)) | (seen & live & TIQ_BIT),",
+        "            VanishedInterrupt::Mesen2 => seen,",
+    ),
+    # control.rs: "drop" takes what the poll saw even when it has gone.
+    "drop-takes-polled": (
+        "control.rs",
+        "            VanishedInterrupt::Drop => seen & live,",
+        "            VanishedInterrupt::Drop => seen | live,",
+    ),
+    # control.rs: the entry's vector ignores the disable register.
+    "vector-ignores-disable": (
+        "control.rs",
+        "        let enabled = !self.pins.irq_disable & 7;\n        let seen = self.pins.poll_lines & enabled;",
+        "        let enabled = 7;\n        let seen = self.pins.poll_lines & enabled;",
+    ),
+    # control.rs: the entry takes IRQ1 before the timer.
+    "vector-priority": (
+        "control.rs",
+        "            (TIQ_BIT, VECTOR_TIQ),\n            (IRQ1_BIT, VECTOR_IRQ1),",
+        "            (IRQ1_BIT, VECTOR_IRQ1),\n            (TIQ_BIT, VECTOR_TIQ),",
+    ),
+    # control.rs (the clean rewrite): the boundary keeps the polled lines past it.
+    "polled-lines-kept": (
+        "control.rs",
+        "            pins.poll_lines = polled_lines.unwrap_or(pins.lines);\n            pins.polled_lines = None;",
+        "            pins.poll_lines = polled_lines.unwrap_or(pins.lines);",
+    ),
+    # control.rs: the default boundary counts the live lines, not the polled ones.
+    "boundary-counts-live-lines": (
+        "control.rs",
+        "            pins.poll_lines = polled_lines.unwrap_or(pins.lines);",
+        "            pins.poll_lines = pins.lines;",
+    ),
+    # control.rs: irq_poll_cycle Last counts the lines the poll saw, as the default does.
+    "last-counts-polled-lines": (
+        "control.rs",
+        "        pins.poll_lines = pins.lines;\n        pins.polled_lines = None;\n        let frame",
+        "        pins.poll_lines = polled_lines.unwrap_or(pins.lines);\n        pins.polled_lines = None;\n        let frame",
+    ),
+    # control.rs: irq_poll_cycle Last forgets that CLI, SEI and PLP count one instruction late.
+    "last-ignores-polled-i": (
+        "control.rs",
+        "            Some(polled_i) => polled_i,",
+        "            Some(_) => self.p & I,",
+    ),
+    # control.rs: irq_poll_cycle Last takes a masked line.
+    "last-ignores-disable": (
+        "control.rs",
+        "        if pins.lines & !pins.irq_disable & 7 != 0 && i_flag == 0 {",
+        "        if pins.lines & 7 != 0 && i_flag == 0 {",
     ),
 }
 

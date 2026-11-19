@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Rung 1, the arithmetic tables: ADC's and SBC's result and flags for every
 //! pair of operands, binary and decimal, under both decimal formulas, as one
 //! digest a line. `scripts/reference_alu.py` prints the same from the

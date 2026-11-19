@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Rung 5: replay MAME 0.285's trace of a real game through the core, as the
 //! reference's `tests/mame_replay.py` does, and print the same report.
 //!
@@ -151,14 +152,42 @@ impl<R: BufRead> Iterator for Log<R> {
 }
 
 /// Where in the ROM (in 8 KB banks) each sixteenth of the 128 ROM pages
-/// starts: Mesen2's mirroring as the reference states it (emulator tier).
+/// starts (the reference's `harness.bank_offsets`, 6ce348e).
+///
+/// pcetech 3 says only that cards smaller than 1 MB "may be mirrored". The
+/// shapes are MAME's (`bus/pce/pce_slot.cpp` `rom_map_setup`, BSD-3-Clause,
+/// copyright Fabio Priuli; ported by the reference, see NOTICE.md; emulator
+/// tier): in 128 KB blocks, a 384 KB card is 0 1 0 1 2 2 2 2 (two chips, the
+/// conventional split), a 192 KB image 0 1 2 2 0 1 2 2, and anything else
+/// maps its blocks in order and fills the rest by repeating the run before (so
+/// 768 KB is 0-5 4 5 and a power of two repeats whole). Cards under 128 KB
+/// repeat from the start (the harness's modulo; a choice).
 fn bank_offsets(banks: usize) -> [usize; 8] {
-    match banks {
-        0x30 => [0, 0x10, 0, 0x10, 0x20, 0x20, 0x20, 0x20],
-        0x40 => [0, 0x10, 0x20, 0x30, 0x20, 0x30, 0x20, 0x30],
-        0x60 => [0, 0x10, 0x20, 0x30, 0x40, 0x50, 0x40, 0x50],
-        _ => [0, 0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70],
+    let blocks: Vec<usize> = if banks == 0x30 {
+        vec![0, 1, 0, 1, 2, 2, 2, 2]
+    } else if banks == 0x18 {
+        vec![0, 1, 2, 2, 0, 1, 2, 2]
+    } else if banks < 0x10 {
+        (0..8).collect()
+    } else {
+        let mut blocks: Vec<usize> = (0..(banks / 0x10).min(8)).collect();
+        let mut filled = blocks.len();
+        while filled % 8 != 0 {
+            let mut shift = 0;
+            while filled % (8 >> shift) != 0 && shift < 3 {
+                shift += 1;
+            }
+            let repeat = filled % (8 >> (shift - 1));
+            blocks.extend_from_within(filled - repeat..filled);
+            filled += repeat;
+        }
+        blocks
+    };
+    let mut offsets = [0; 8];
+    for (offset, block) in offsets.iter_mut().zip(blocks) {
+        *offset = block * 0x10;
     }
+    offsets
 }
 
 /// The reference's minimal harness with MAME's board behind its
@@ -680,7 +709,7 @@ fn replay(
             let cpu = &mut harness.cpu;
             if BLOCK_OPCODES.contains(&opcode) {
                 // C14: MAME's block transfers keep A, X and Y in the CPU and
-                // never push them; the core (like Mesen and Mednafen) pushes
+                // never push them; the core pushes
                 // and pops them (HW HB-6), so a transfer over the stack gives
                 // them back overwritten. MAME's are adopted.
                 report.block_registers += 1;
@@ -733,4 +762,24 @@ fn main() {
         commas(harness.steps)
     );
     eprintln!("{:.3} s", began.elapsed().as_secs_f64());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bank_offsets;
+
+    #[test]
+    fn rom_mirroring_is_mames_cartridge_map() {
+        // The reference's test_harness_rom_mirroring_is_mames_cartridge_map.
+        let blocks = |banks| bank_offsets(banks).map(|offset| offset / 0x10);
+        assert_eq!(blocks(0x30), [0, 1, 0, 1, 2, 2, 2, 2]); // 384 KB: two chips
+        assert_eq!(blocks(0x18), [0, 1, 2, 2, 0, 1, 2, 2]); // 192 KB
+        assert_eq!(blocks(0x40), [0, 1, 2, 3, 0, 1, 2, 3]); // 512 KB repeats whole
+        assert_eq!(blocks(0x60), [0, 1, 2, 3, 4, 5, 4, 5]); // 768 KB
+        assert_eq!(blocks(0x50), [0, 1, 2, 3, 4, 4, 4, 4]); // 640 KB
+        assert_eq!(blocks(0x80), [0, 1, 2, 3, 4, 5, 6, 7]);
+        assert_eq!(blocks(0x10), [0; 8]);
+        assert_eq!(blocks(0x20), [0, 1, 0, 1, 0, 1, 0, 1]);
+        assert_eq!(blocks(0x04), [0, 1, 2, 3, 4, 5, 6, 7]); // under 128 KB: the modulo repeats it
+    }
 }

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Directed tests of the crate's public surface that need no reference: the
 //! bus contract (one callback a cycle, physical addresses, what the pins
 //! show), the three interrupt lines and their disable register, the named
@@ -6,7 +7,8 @@
 
 use huc6280::trace::{next_boundary, BoundaryKind};
 use huc6280::{
-    Bus, CpuState, DecimalFormula, HuC6280, Kind, Pins, VanishedInterrupt, OPCODES, T, VDC_ADDRESS,
+    Bus, CpuState, DecimalFormula, HuC6280, IrqPollCycle, Kind, Pins, VanishedInterrupt, OPCODES,
+    T, VDC_ADDRESS,
 };
 
 /// 2 MB of RAM that records every cycle with what the pins showed.
@@ -220,10 +222,13 @@ fn a_line_raised_in_the_last_cycle_waits_one_instruction() {
 }
 
 #[test]
-fn a_timer_interrupt_whose_source_has_gone_is_dropped_or_latched() {
+fn a_timer_interrupt_whose_source_has_gone_is_dropped() {
+    // OBSERVED (Mesen2 2.1.1 and Mednafen 1.32.1 as closed boxes, the
+    // reference's validation/vanish_probe.py): a timer acknowledged in the last
+    // cycle is not entered. The withdrawn "latched" has no variant (the
+    // reference refuses it with ValueError).
     for (mode, entered) in [
         (VanishedInterrupt::Mesen2, false),
-        (VanishedInterrupt::Latched, true),
         (VanishedInterrupt::Drop, false),
     ] {
         // CLI; NOP; NOP with the timer's line up: CLI's poll still sees I
@@ -239,6 +244,25 @@ fn a_timer_interrupt_whose_source_has_gone_is_dropped_or_latched() {
         assert_eq!(cpu.pc, 0x4002);
         cpu.step();
         assert_eq!(cpu.pc == 0x5000, entered, "{mode:?}");
+    }
+}
+
+#[test]
+fn a_source_still_asserted_is_taken_in_every_mode() {
+    for (mode, poll) in [
+        (VanishedInterrupt::Mesen2, IrqPollCycle::SecondToLast),
+        (VanishedInterrupt::Drop, IrqPollCycle::SecondToLast),
+        (VanishedInterrupt::Mesen2, IrqPollCycle::Last),
+        (VanishedInterrupt::Drop, IrqPollCycle::Last),
+    ] {
+        let mut cpu = cpu(&[0xEA]);
+        vector(&mut cpu, 0xFFFA, 0x6200);
+        cpu.vanished_interrupt = mode;
+        cpu.irq_poll_cycle = poll;
+        cpu.p = 0;
+        cpu.set_irq_lines(false, false, true);
+        assert_eq!(cpu.step(), 8, "{mode:?} {poll:?}");
+        assert_eq!(cpu.pc, 0x6200, "{mode:?} {poll:?}");
     }
 }
 
@@ -384,7 +408,7 @@ fn trail(cpu: &mut HuC6280<Scheduled>, steps: usize, restore_at: Option<usize>) 
 }
 
 /// CLI; NOP x4. TIQ drops in the first NOP's last cycle (cycle 3): the entry
-/// after it finds nothing (C18, Mesen2's rule) and runs the second NOP; IRQ1
+/// after it finds nothing (C18, the default) and runs the second NOP; IRQ1
 /// rises in that NOP's last cycle (5).
 fn vanished_then_rising() -> HuC6280<Scheduled> {
     scheduled(
@@ -400,7 +424,7 @@ fn swapped() -> HuC6280<Scheduled> {
     scheduled(&[CLI, NOP, NOP, NOP], TIQ_ONLY, &[(3, IRQ1_ONLY)], None)
 }
 
-/// CLI; NOP; NOP with IRQ1 up, dropped in the first NOP's last cycle: taken (Mesen2, C18).
+/// CLI; NOP; NOP with IRQ1 up, dropped in the first NOP's last cycle: taken (C18, default).
 fn dropped() -> HuC6280<Scheduled> {
     scheduled(&[CLI, NOP, NOP], IRQ1_ONLY, &[(3, NONE)], None)
 }
@@ -422,14 +446,48 @@ fn issue_0005_a_source_swapped_in_the_last_cycle_is_not_taken_at_that_boundary()
         trail(&mut swapped(), 4, None),
         vec![0x4001, 0x4002, 0x4003, 0x6100]
     );
-    // Latched takes what the poll saw, through its own vector: TIQ.
-    let mut latched = scheduled(
+    // "drop" takes nothing either: TIQ has gone and IRQ1 was not polled.
+    let mut dropped = scheduled(
         &[CLI, NOP, NOP, NOP],
         TIQ_ONLY,
         &[(3, IRQ1_ONLY)],
-        Some(VanishedInterrupt::Latched),
+        Some(VanishedInterrupt::Drop),
     );
-    assert_eq!(*trail(&mut latched, 3, None).last().unwrap(), 0x6200);
+    assert_eq!(
+        trail(&mut dropped, 4, None),
+        vec![0x4001, 0x4002, 0x4003, 0x6100]
+    );
+}
+
+#[test]
+fn c16_an_entry_between_set_and_its_target_clears_t_for_the_handler() {
+    // OBSERVED, provisional: Mesen2 and Mednafen as closed boxes (the
+    // reference's validation/vanish_probe.py --only t-entry) run the handler's
+    // first ORA on A, and push P with T set (pcetech 2.3); srg320's VHDL under
+    // GHDL dissents (validation/vanish_vhdl.py --t-entry).
+    let mut cpu = scheduled(&[CLI, 0xF4, NOP, NOP], TIQ_ONLY, &[], None); // CLI; SET; NOP; NOP
+    cpu.bus.memory[0x4200..0x4202].copy_from_slice(&[0x09, 0x0F]); // the TIQ handler: ORA #$0F
+    cpu.a = 0;
+    cpu.x = 0;
+    assert_eq!(
+        trail(&mut cpu, 4, None),
+        vec![0x4001, 0x4002, 0x6200, 0x6202]
+    ); // entered after SET
+    assert_eq!((cpu.a, cpu.bus.memory[0x1F0000]), (0x0F, 0)); // ORA worked on A
+    assert_ne!(cpu.bus.memory[0x1F01FD] & T, 0); // the pushed P keeps T
+}
+
+#[test]
+fn the_lines_the_poll_saw_hold_until_the_next_boundary_only() {
+    // The reference's clean rewrite (6ce348e): the boundary clears them, so a
+    // capture right after an interrupt entry reports None.
+    let mut cpu = dropped();
+    cpu.step();
+    cpu.step();
+    assert_eq!(cpu.capture_state().polled_irq_lines, Some(0x02));
+    cpu.step();
+    assert_eq!(cpu.pc, 0x6100);
+    assert_eq!(cpu.capture_state().polled_irq_lines, None);
 }
 
 #[test]
@@ -492,8 +550,8 @@ fn issue_0005_a_state_from_before_the_field_loads_as_the_poll_agreeing() {
 
 #[test]
 fn issue_0005_brk_does_not_poll() {
-    // Item 4: BRK is the interrupt sequence (an entry is BRK with its opcode
-    // forced) and, like an entry and as on the 6502 (the frame's rule), does
+    // Item 4: BRK makes an entry's pushes and vector reads (C3, C8) and, like
+    // an entry and as on the 6502 (the frame's rule), does
     // not poll: an NMI latched during it waits for the handler's first
     // instruction. Only NMI shows it (BRK sets I); NMI is not connected on a
     // PC Engine.

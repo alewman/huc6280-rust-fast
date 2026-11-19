@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Loads, stores, register transfers and the index counters: LDA LDX LDY STA
 //! STX STY STZ TAX TAY TXA TYA TSX TXS INX INY DEX DEY (`_loads.py`).
 //!

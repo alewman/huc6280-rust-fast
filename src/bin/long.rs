@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Rung 5 without MAME traces: a long synthetic program on a seeded bus.
 //!
 //!     long SEED STEPS [--alternate]
@@ -161,7 +162,10 @@ fn main() {
         cpu.nop_63_cycles = 4;
         cpu.interrupt_entry_cycles = 7;
         cpu.irq_poll_cycle = IrqPollCycle::Last;
-        cpu.vanished_interrupt = VanishedInterrupt::Latched;
+        // Drop since the reference's clean rewrite withdrew "latched" (6ce348e). Under
+        // poll Last the poll lines are the live lines, so "latched" and "drop" took the
+        // same sources: the run is the one it was.
+        cpu.vanished_interrupt = VanishedInterrupt::Drop;
     }
     cpu.request_reset();
     let began = std::time::Instant::now();

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """Rung 5, the reference's half: replay a MAME trace of a real game through huc6280-python.
 
     reference_replay.py TRACE_DIR [--limit N]

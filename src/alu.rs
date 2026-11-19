@@ -1,149 +1,135 @@
-//! Arithmetic, logic, compare and bit test: ADC SBC AND ORA EOR CMP CPX CPY
-//! BIT (`_alu.py`).
+// SPDX-License-Identifier: MIT
+//! Arithmetic, logic and compare: ADC SBC AND ORA EOR CMP CPX CPY BIT
+//! (`_alu.py`).
 //!
-//! `ORA`, `AND`, `EOR` and `ADC` honour the T flag (U4): with T set the
-//! accumulator is replaced by the zero-page byte at X (logical `$2000 + X`),
-//! the result goes back there, A is untouched and the instruction takes three
-//! more cycles (read, internal, write). `SBC` does not (C5: SW's entry has no
-//! T clause; MAME's yes is a guess), unless `sbc_honours_t` is set.
+//! C13, decimal ADC and SBC (rewritten 2026-11-19, docs/restart.md; the
+//! reference's docs/restart.md). Neither Hudson manual says what the digit
+//! adjust does with a digit above 9, and no hardware result is known, so two
+//! emulators' behaviour is kept, each written in the reference from its own
+//! result table alone:
 //!
-//! Decimal mode (U14, HW HB-4, SW `ADC`): one more cycle, N, Z and C taken
-//! from the decimal result, **V left alone**. How invalid digits adjust is
-//! C13: neither manual says. `decimal_formula` picks the digit adjust. The
-//! default, `Mednafen`, gives the results Mednafen's HuC6280 gives
-//! ("corrected ... per tests on a HuC6280", its ChangeLog, 2015-04-29: the
-//! one author statement of hardware testing); `Mesen` gives Mesen's, the
-//! results the 640,000-case SingleStepTests corpus was made with. They
-//! differ only with an invalid BCD digit (the reference's docs/issues/0004).
-//! Both are transcribed from the reference's own routines, which were
-//! written from the rules stated in words there and checked against recorded
-//! result tables; neither emulator's code is copied.
+//! - [`DecimalFormula::Mednafen`] (default): the table recorded by running
+//!   Mednafen 1.32.1 (patched for tracing only) as a closed box over every A,
+//!   operand and carry (the reference's `scripts/decimal_tables.py`).
+//!   OBSERVED, provisional; closed-box measurement (emulator tier, Mednafen
+//!   1.32.1).
+//! - [`DecimalFormula::Mesen`]: the 11,346 decimal ADC/SBC cases of
+//!   SingleStepTests huc6280 (MIT test data recorded from Mesen). OBSERVED,
+//!   provisional; closed-box measurement (emulator tier, the corpus's Mesen).
 //!
-//! Differences forced by Rust: the digit arithmetic is done in `i32`, with
-//! `rem_euclid` where the reference's `%` meets a negative number (Python's
-//! `%` takes the sign of the divisor); an unknown formula cannot be named,
-//! so the reference's `ValueError` has no counterpart.
+//! The two agree whenever both digits of both inputs are 0-9. In both tables V
+//! is left as it was and N and Z come from the stored result (TEST ROM tier for
+//! the valid digits: the corpus and the Mednafen run agree, and both pass
+//! Dormann's and Rockwell's decimal cases).
+//!
+//! Differences forced by Rust: the formula is an enum, so the reference's
+//! `ValueError` for an unknown formula (raised when a decimal ADC or SBC runs)
+//! has no counterpart; the digit arithmetic is in `i32`, where Python's
+//! integers would go negative or past a byte.
 
-use crate::core::{Bus, HuC6280, C, D, N, V, Z, ZERO_PAGE};
+use crate::core::{nz, Bus, HuC6280, C, D, N, V, Z, ZERO_PAGE};
 use crate::dispatch::Mode;
 
-/// C13: the decimal digit adjust of ADC and SBC (`decimal_formula`).
+/// C13: the decimal digit adjust of ADC and SBC (the reference's
+/// `DECIMAL_FORMULAS = ("mednafen", "mesen")`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DecimalFormula {
-    /// The default: the results Mednafen gives.
+    /// `"mednafen"` (default): Mednafen 1.32.1's results, recorded closed box.
     Mednafen,
-    /// The results Mesen gives, which the SingleStepTests corpus records.
+    /// `"mesen"`: the SingleStepTests corpus's (Mesen's) results.
     Mesen,
 }
 
-/// N and Z for a result that has not been masked to 8 bits yet.
-fn nz(value: i32) -> u8 {
-    (value as u8 & N) | if value & 0xFF != 0 { 0 } else { Z }
-}
-
-/// The decimal sum before masking: 256 and up is the carry out.
-///
-/// Written from the rule each emulator's result table follows (the
-/// reference's docs/issues/0004 states both in words), digit by digit; no
-/// emulator's source is reproduced here.
-fn decimal_add(a: i32, operand: i32, carry: i32, formula: DecimalFormula) -> i32 {
-    let mut ones = a % 16 + operand % 16 + carry;
-    let sixteens = a / 16 + operand / 16;
-    if ones >= 10 {
-        ones += 6; // a digit past 9 skips the six unused codes
+/// Decimal A + M + C: the 8-bit result and the carry out.
+fn decimal_add(a: u8, operand: u8, carry: u8, formula: DecimalFormula) -> (u8, bool) {
+    let (a, operand, carry) = (a as i32, operand as i32, carry as i32);
+    let mut low = (a & 0x0F) + (operand & 0x0F) + carry;
+    if formula == DecimalFormula::Mesen {
+        // Each digit on its own: above 9 it gains 6, and passes a carry of 1 to the next.
+        if low > 9 {
+            low += 6;
+        }
+        let mut high = (a >> 4) + (operand >> 4) + (low > 0x0F) as i32;
+        if high > 9 {
+            high += 6;
+        }
+        return (((high << 4) | (low & 0x0F)) as u8, high > 0x0F);
     }
-    let mut total = match formula {
-        // Everything the ones digit overflowed by is carried, however much that is.
-        DecimalFormula::Mednafen => 16 * sixteens + ones,
-        // One carry at most, and only the low four bits of the ones digit are kept.
-        DecimalFormula::Mesen => 16 * (sixteens + if ones >= 16 { 1 } else { 0 }) + ones % 16,
-    };
-    if total >= 0xA0 {
+    // Mednafen: the binary sum, plus 6 when the low digits' sum is above 9, then plus $60
+    // when what stands above the low digit is above 9 (so a low digit past $1F carries 2).
+    let mut total = a + operand + carry;
+    if low > 9 {
+        total += 0x06;
+    }
+    if total >> 4 > 9 {
         total += 0x60;
     }
-    total
+    (total as u8, total > 0xFF)
 }
 
-/// The decimal difference: 256 and up means no borrow (carry out). Written as above.
-fn decimal_subtract(a: i32, operand: i32, carry: i32, formula: DecimalFormula) -> i32 {
-    match formula {
-        DecimalFormula::Mednafen => {
-            // Digit differences with a borrow between them; each digit that
-            // borrowed is corrected (by 6, by $60) on the assembled byte,
-            // modulo 256.
-            let ones = a % 16 - operand % 16 - (1 - carry);
-            let sixteens = a / 16 - operand / 16 - if ones < 0 { 1 } else { 0 };
-            let mut byte = 16 * sixteens.rem_euclid(16) + ones.rem_euclid(16);
-            if ones < 0 {
-                byte -= 0x06;
-            }
-            if sixteens < 0 {
-                byte -= 0x60;
-            }
-            byte.rem_euclid(256) + if sixteens < 0 { 0 } else { 256 }
+/// Decimal A - M - (1 - C): the 8-bit result and the carry out (no borrow).
+fn decimal_subtract(a: u8, operand: u8, carry: u8, formula: DecimalFormula) -> (u8, bool) {
+    let (a, operand) = (a as i32, operand as i32);
+    let borrow = 1 - carry as i32;
+    let mut low = (a & 0x0F) - (operand & 0x0F) - borrow;
+    if formula == DecimalFormula::Mesen {
+        // Each digit on its own: below 0 it loses 6, and takes a borrow of 1 from the next.
+        if low < 0 {
+            low -= 6;
         }
-        DecimalFormula::Mesen => {
-            // The sum with the operand's complement; a digit that produced no
-            // carry is corrected before the next is formed, and the
-            // correction is not reduced modulo 256 here.
-            let complement = 255 - operand;
-            let mut ones = a % 16 + complement % 16 + carry;
-            if ones < 16 {
-                ones -= 6;
-            }
-            let mut total = 16 * (a / 16 + complement / 16 + if ones >= 16 { 1 } else { 0 })
-                + ones.rem_euclid(16);
-            if total < 256 {
-                total -= 0x60;
-            }
-            total
+        let mut high = (a >> 4) - (operand >> 4) - (low < 0) as i32;
+        if high < 0 {
+            high -= 6;
         }
+        return (((high << 4) | (low & 0x0F)) as u8, high >= 0);
     }
+    // Mednafen: the binary difference, minus 6 when the low digits borrow, minus $60 when
+    // the whole subtraction borrows; the carry is the binary one.
+    let difference = a - operand - borrow;
+    let mut result = difference;
+    if low < 0 {
+        result -= 0x06;
+    }
+    if difference < 0 {
+        result -= 0x60;
+    }
+    (result as u8, difference >= 0)
 }
 
-/// A + operand + C, binary or decimal; return (result, P).
+/// ADC: (result, new P). Binary: N V Z C as the 6502 (SW SB-17); decimal: C13
+/// (the module's head).
 pub fn add(a: u8, operand: u8, p: u8, formula: DecimalFormula) -> (u8, u8) {
-    let (a, operand) = (a as i32, operand as i32);
-    let carry = (p & C) as i32;
-    let mut p = p;
-    let result;
+    let carry = p & C;
     if p & D != 0 {
-        result = decimal_add(a, operand, carry, formula);
-        p &= !(N | Z | C); // V is unchanged in decimal mode (U14)
-    } else {
-        result = a + operand + carry;
-        p &= !(N | V | Z | C);
-        if !(a ^ operand) & (a ^ result) & 0x80 != 0 {
-            p |= V;
-        }
+        let (result, carry_out) = decimal_add(a, operand, carry, formula);
+        return (
+            result,
+            (p & !(N | Z | C)) | nz(result) | if carry_out { C } else { 0 },
+        );
     }
-    if result > 0xFF {
-        p |= C;
-    }
-    (result as u8, p | nz(result))
+    let total = a as u16 + operand as u16 + carry as u16;
+    let result = total as u8;
+    let overflow = !(a ^ operand) & (a ^ result) & 0x80;
+    let p = (p & !(N | V | Z | C)) | nz(result) | if overflow != 0 { V } else { 0 };
+    (result, p | if total > 0xFF { C } else { 0 })
 }
 
-/// A - operand - (1 - C), binary or decimal; return (result, P).
+/// SBC: (result, new P). Binary: N V Z C as the 6502 (SW SB-74); decimal: C13
+/// (the module's head).
 pub fn subtract(a: u8, operand: u8, p: u8, formula: DecimalFormula) -> (u8, u8) {
-    let (a, operand) = (a as i32, operand as i32);
-    let carry = (p & C) as i32;
-    let mut p = p;
-    let result;
+    let carry = p & C;
     if p & D != 0 {
-        result = decimal_subtract(a, operand, carry, formula);
-        p &= !(N | Z | C);
-    } else {
-        let inverted = !operand & 0xFF;
-        result = a + inverted + carry;
-        p &= !(N | V | Z | C);
-        if !(a ^ inverted) & (a ^ result) & 0x80 != 0 {
-            p |= V;
-        }
+        let (result, carry_out) = decimal_subtract(a, operand, carry, formula);
+        return (
+            result,
+            (p & !(N | Z | C)) | nz(result) | if carry_out { C } else { 0 },
+        );
     }
-    if result > 0xFF {
-        p |= C;
-    }
-    (result as u8, p | nz(result))
+    let difference = a as i32 - operand as i32 - (1 - carry as i32);
+    let result = difference as u8;
+    let overflow = (a ^ operand) & (a ^ result) & 0x80;
+    let p = (p & !(N | V | Z | C)) | nz(result) | if overflow != 0 { V } else { 0 };
+    (result, p | if difference >= 0 { C } else { 0 })
 }
 
 /// ADC's or SBC's arithmetic: [`add`] or [`subtract`].
@@ -229,7 +215,8 @@ impl<B: Bus> HuC6280<B> {
         if decimal {
             // U14: the extra cycle. A dummy read at the next opcode, or an
             // internal cycle for SBC while T is set (it does not use the
-            // memory mode but keeps its cycle; Mesen).
+            // memory mode but keeps its cycle; what the SingleStepTests
+            // corpus records, emulator tier).
             if self.t != 0 {
                 self.io();
             } else {

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Shifts, rotates, INC and DEC, on the accumulator and on memory: ASL LSR
 //! ROL ROR INC DEC (`_shifts.py`).
 //!

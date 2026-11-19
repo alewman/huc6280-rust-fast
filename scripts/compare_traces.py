@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """Compare two boundary traces with the reference's own reader and comparison.
 
     compare_traces.py REFERENCE.jsonl OURS.jsonl

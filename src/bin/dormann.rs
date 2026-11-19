@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Rung 3: Klaus Dormann's 65C02 extended opcodes test, relocated, natively.
 //!
 //!     dormann TEST.bin START SUCCESS [--limit N]

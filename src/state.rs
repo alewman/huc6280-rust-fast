@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Values for capturing and restoring HuC6280 processor state (`state.py`).
 //!
 //! Differences forced by Rust: the field widths are the types', so of the
@@ -59,8 +60,10 @@ pub struct CpuState {
     /// bits 0-2, the `$1403` layout), when a line changed after the poll, in
     /// the instruction's last cycle; `None` when the poll saw `irq1`, `irq2`
     /// and `tiq` as they stand. It picks the vector and decides a vanished
-    /// interrupt (C18). Added in issue 0005; `None`, the default, is how a
-    /// state from before it loads.
+    /// interrupt (C18). The lines hold until the next boundary only: the
+    /// boundary clears them (the reference's clean rewrite, 6ce348e), so a
+    /// capture right after an interrupt entry reports `None`. Added in issue
+    /// 0005; `None`, the default, is how a state from before it loads.
     pub polled_irq_lines: Option<u8>,
 }
 

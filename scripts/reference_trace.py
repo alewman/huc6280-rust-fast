@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """Run a scenario on huc6280-python and write its boundary trace (the reference's half).
 
 The same scenario format as ``src/bin/trace.rs`` (conformance/README.md), run

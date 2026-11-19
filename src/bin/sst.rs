@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Rung 2: the SingleStepTests huc6280 corpus (Mesen-generated; emulator
 //! tier), every case run and judged as the reference's `tests/single_step.py`
 //! judges it, mask for mask.

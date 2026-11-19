@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """Rungs 1 and 4: run each scenario on both cores and compare the traces.
 
     lockstep.py SCENARIO.json [...] [--jobs N] [--python REFERENCE_PYTHON]

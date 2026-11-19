@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """Rung 3, the reference's half: build Dormann's relocated test and run it on huc6280-python.
 
     reference_dormann.py OUT_DIR [--limit N]

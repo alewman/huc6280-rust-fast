@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Bit instructions: RMB SMB BBR BBS TSB TRB (`_bits.py`).
 //!
 //! `RMBi`/`SMBi`/`BBRi`/`BBSi` take the bit number from the opcode

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # Rung 4: interrupts in lockstep with the reference: the three lines and
 # their vectors, irq_disable, NMI, BRK, reset, the poll (CLI, SEI, PLP, a
 # change in the last cycle) in each irq_poll_cycle mode, the vanished

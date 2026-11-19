@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Hudson's additions: SXY SAX SAY CLA CLX CLY ST0 ST1 ST2 TMA TAM CSL CSH
 //! SET TST (`_hudson.py`).
 //!
@@ -13,9 +14,12 @@ use crate::dispatch::Mode;
 /// 2.0). The VDC's registers are every 4 bytes.
 pub const VDC_ADDRESS: u32 = 0x1FE000;
 
-/// C6: TMA with several mask bits. Mesen ORs the registers, MAME takes the
-/// highest bit's; pcetech: "combined together... I have not figured out
-/// exactly how this works".
+/// C6: TMA with several mask bits. pcetech 2.0: "combined together... I have
+/// not figured out exactly how this works". `Or` (default): all 2,418
+/// SingleStepTests huc6280 cases with several bits record the OR of the
+/// registers (OBSERVED, provisional: the corpus is Mesen's output, a closed
+/// box). `Highest`: MAME 0.285 (h6280.cpp `tma`, BSD-3-Clause, Bryan McPhail).
+/// `Lowest`: for completeness. No hardware result is known.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TmaMultiple {
     /// The default (emulator tier).
@@ -127,9 +131,11 @@ impl<B: Bus> HuC6280<B> {
 
     fn speed(&mut self, high: bool) {
         self.implied();
-        // C7: the new speed holds for the instruction's last cycle (Mesen,
-        // Mednafen); MAME applies it after. 3 cycles when the speed does not
-        // change (pcetech 2.4, U10).
+        // C7: the new speed holds for the instruction's last cycle. OBSERVED,
+        // provisional: the traced Mednafen 1.32.1 run as a closed box times CSH
+        // from low speed at 4 + 4 + 1 and CSL from high at 1 + 1 + 4 (7.16 MHz
+        // units); MAME 0.285 changes the speed after the instruction (the rung 4
+        // replays: +3). 3 cycles either way (pcetech 2.4, U10).
         self.pins.high_speed = high;
         self.io();
     }

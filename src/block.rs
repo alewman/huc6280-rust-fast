@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Block transfers: TII TDD TIN TIA TAI (SW SB-88 to SB-100; HW HB-6;
 //! pcetech 2.0) (`_block.py`).
 //!
@@ -5,8 +6,9 @@
 //! three operand words, move one byte per six cycles, pop X, A, Y, for
 //! 17 + 6n cycles (n = 0 means 65,536). The whole transfer is **one step**
 //! and cannot be interrupted: the interrupt is taken when it ends (U6,
-//! pcetech). The shape is Mesen's: 13 cycles of entry, `i R i W i i` a byte,
-//! 4 of exit (the reference's docs/timing.md).
+//! pcetech). The shape is the one SingleStepTests huc6280 records (Mesen's
+//! output, a closed box; emulator tier): 13 cycles of entry, `i R i W i i` a
+//! byte, 4 of exit (the reference's docs/timing.md).
 
 use crate::core::{Bus, HuC6280};
 

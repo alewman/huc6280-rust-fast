@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # SingleStepTests huc6280 (MIT, about 185 MB) at the revision the reference's
 # scripts/pinned_repos.json pins, into external/huc6280-sst.
 # Usage: scripts/fetch_vectors.sh [DEST]

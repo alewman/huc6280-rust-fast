@@ -1,7 +1,8 @@
+// SPDX-License-Identifier: MIT
 //! A Rust Hudson HuC6280 core transcribed from
 //! [huc6280-python](https://github.com/alewman/huc6280-python) (built from
-//! `v0.3.0`, now at `v0.4.0`, `265df88`) and proven equivalent to it at every
-//! processor boundary.
+//! `v0.3.0`, now at its clean rewrite `6ce348e`, after `v0.4.0`) and proven
+//! equivalent to it at every processor boundary.
 //!
 //! Each module is the transcription of one `huc6280/*.py` module, with the
 //! same handler names, the same explicit dispatch table, the named switches

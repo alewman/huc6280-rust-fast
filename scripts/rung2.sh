@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # Rung 2: SingleStepTests huc6280, all 640,000 cases (LIMIT=N for the first N
 # of each opcode), on both cores under the reference's masks, the verdicts
 # compared case for case: under the core's default decimal formula (C13

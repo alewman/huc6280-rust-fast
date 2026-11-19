@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! The public HuC6280 CPU (`cpu.py`): the frame's four hooks, the step, and
 //! state capture.
 //!

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Branches, jumps, calls, returns, the stack, flags, BRK, interrupts and
 //! reset (`_control.py`).
 //!
@@ -17,8 +18,14 @@
 //! forwarders on the CPU; the reference's `_boundary_interrupt` override
 //! that calls `super()` is `boundary_interrupt` here, called from the
 //! `Part` implementation in cpu.rs, ending in the frame's own; the
-//! reference's `ValueError` for an unknown `irq_poll_cycle` has no
-//! counterpart, the modes being an enum.
+//! reference's `ValueError` for an unknown `irq_poll_cycle` or
+//! `vanished_interrupt` has no counterpart, the modes being enums without
+//! the withdrawn values.
+//!
+//! The two switches' enums, `boundary_interrupt_sequence` and
+//! `maskable_vector` were transcribed anew from the reference's clean rewrite
+//! (huc6280-python `6ce348e`; docs/restart.md); the code they replace was
+//! moved aside unread.
 
 use sixfiveohtwo::frame::{IRQ_LINE, NMI_LATCH, NO_POLL};
 
@@ -35,42 +42,51 @@ pub const IRQ2_BIT: u8 = 0x01;
 pub const IRQ1_BIT: u8 = 0x02;
 pub const TIQ_BIT: u8 = 0x04;
 
-/// C18: what an interrupt does when its source has gone between the poll
-/// (the end of the instruction's second-to-last cycle) and the entry, as
-/// when a handler runs `CLI` and then acknowledges the timer in the last
-/// cycle of `STZ $1403`. In every mode an interrupt with no source left is
-/// never entered through IRQ2 by default (issue 0002).
+/// C18: what an entry does when a source the poll saw has gone by the
+/// boundary (it was acknowledged in the instruction's last cycle). When
+/// nothing is left, the instruction runs instead.
+///
+/// The reference's `vanished_interrupt` keeps `"mesen2"` and `"drop"`; its
+/// `"latched"` was withdrawn in the clean rewrite (it raises `ValueError`
+/// there) and has no variant here.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VanishedInterrupt {
-    /// The default, emulator-derived, Mesen2's documented rule: the timer is
-    /// re-checked at entry and dropped if it has gone, IRQ1 and IRQ2 are
-    /// taken through their own vector as the poll saw them.
+    /// `"mesen2"` (default): IRQ1 and IRQ2 are taken as the poll saw them,
+    /// through their own vectors; the timer is taken only if it is still
+    /// asserted. OBSERVED, provisional: Mesen2 2.1.1 and Mednafen 1.32.1 run
+    /// as closed boxes on the reference's validation/vanish_rom.py cards (a
+    /// timer acknowledged by `STZ $1403`, a VDC interrupt by a status read,
+    /// each in the last cycle) both drop the timer and take IRQ1; no hardware
+    /// result is known. A timer that appears in the last cycle waits for the
+    /// next poll, like any other source (a choice: neither run shows it).
     Mesen2,
-    /// Every source is taken as the poll saw it (what srg320's HDL does,
-    /// read from its source: the `*_INT` registers are latched in the last
-    /// cycle).
-    Latched,
-    /// Dropped unless a source is still asserted at entry.
+    /// `"drop"`: only sources the poll saw and that are still asserted are
+    /// taken.
     Drop,
 }
 
-/// U25 (issue 0003): which cycle of an instruction the interrupt lines are
-/// sampled at. The I flag is the sampled one in every mode (U21). Emulator
-/// tier; no source above it says.
+/// U25: when the boundary samples the lines. Hudson's hardware manual says
+/// only that the inputs "are sampled in the last bus cycle of one
+/// instruction" (HW HB-12), not whether a change during that cycle counts.
+///
+/// The reference's `irq_poll_cycle` keeps `"second_to_last"` and `"last"`;
+/// its `"mednafen"` was withdrawn in the clean rewrite (it raises
+/// `ValueError` there) and has no variant here.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IrqPollCycle {
-    /// The default, the 6502 frame's rule (U21): the end of the
-    /// second-to-last cycle, so a line that rises in the last cycle is seen
-    /// one instruction later.
+    /// `"second_to_last"` (default): the 6502 rule, the lines as they stood
+    /// at the end of the instruction's second-to-last cycle (the frame's
+    /// poll; NESdev for the 6502), which the MAME replays and Covell's spread
+    /// are judged with (the reference's issue 0003).
     SecondToLast,
-    /// The levels at the boundary all count, a line that rises (or drops)
-    /// in the last cycle included.
+    /// `"last"`: the levels at the boundary, so a line that appears in the
+    /// last cycle is taken there and one that goes is not, every source
+    /// alike. OBSERVED: srg320's HUC6280_CPU run as a closed box under GHDL
+    /// (the reference's validation/vanish_vhdl.py) does exactly this; MAME
+    /// 0.285 also decides at the boundary on the levels then (h6280.cpp,
+    /// BSD-3-Clause, Bryan McPhail: the check after each instruction reads the
+    /// lines' current state).
     Last,
-    /// Mednafen's rule as the reference states it: IRQ1 and IRQ2 are taken
-    /// from a sample taken at the start of the last cycle (the default's
-    /// point), but the timer is tested against the live line at the
-    /// boundary, so TIQ alone behaves as `Last`.
-    Mednafen,
 }
 
 impl Pins {
@@ -403,10 +419,11 @@ impl<B: Bus> HuC6280<B> {
         self.fetch(); // C2: the signature byte is skipped, so BRK is two bytes
         self.interrupt(VECTOR_IRQ2, self.p | B); // U15
         self.io();
-        // BRK is the interrupt sequence (an entry is BRK with the opcode
-        // forced to $00: srg320's HDL, Mesen2's ProcessIrq) and, like an
-        // entry, does not poll: the handler's first instruction runs first
-        // (the 6502 frame's rule; issue 0005). step() moves this to polled.
+        // BRK's cycles are those SingleStepTests huc6280 records (emulator
+        // tier); an entry makes the same pushes and vector reads (C3, C8).
+        // Like an entry, BRK does not poll: the handler's first instruction
+        // runs first (the 6502 frame's rule; issue 0005). step() moves this
+        // to polled.
         self.pins.frame.deferred = Some(NO_POLL);
     }
 
@@ -415,7 +432,14 @@ impl<B: Bus> HuC6280<B> {
         self.push((pc >> 8) as u8);
         self.push(pc as u8);
         self.push(pushed_p);
-        // HW HB-14, pcetech 2.0: the entry sets I and clears D, and clears T.
+        // HW HB-14, pcetech 2.0: the entry sets I and clears D. C16: it also
+        // clears T, so the handler's first instruction runs normally while the
+        // pushed P keeps T (pcetech 2.3). OBSERVED, provisional: Mesen2 and
+        // Mednafen run as closed boxes on a timer taken between SET and its
+        // target (the reference's validation/vanish_rom.py `build_t_entry`)
+        // run the handler's ORA on A; ares (ISC) clears T at entry too.
+        // srg320's VHDL under GHDL dissents: its handler's first ORA works on
+        // zero page (validation/vanish_vhdl.py --t-entry).
         self.p = (self.p | I) & !(D | T);
         let low = self.cycle_read(vector) as u16;
         self.pc = ((self.cycle_read(vector + 1) as u16) << 8) | low;
@@ -449,8 +473,12 @@ impl<B: Bus> HuC6280<B> {
             }
         }
         // Two dummy reads (the opcode and the byte after it, both discarded),
-        // the pushes, the vector, and an internal cycle (Mesen's ProcessIrq;
-        // C3, C8).
+        // the pushes, the vector, and an internal cycle (C3, C8). OBSERVED,
+        // provisional: Mesen2's read and write callbacks, run as a closed box,
+        // show two reads at PC, PCH, PCL and P pushed, the vector read, then a
+        // cycle with no access before the handler's first fetch. srg320's VHDL
+        // under GHDL takes 9: three reads at PC and an internal cycle before
+        // the pushes (the reference's validation/vanish_vhdl.py --dump).
         self.dummy(self.pc);
         self.dummy(self.pc);
         // U4, U5: P is pushed with B clear and T as it stands, so an
@@ -467,69 +495,60 @@ impl<B: Bus> HuC6280<B> {
         self.cycles
     }
 
-    /// The frame's boundary decision, after working out which lines the poll saw.
+    /// The interrupt this boundary takes (the frame's hook), with the lines
+    /// it counts.
     pub(crate) fn boundary_interrupt_sequence(&mut self) -> u8 {
+        let mode = self.irq_poll_cycle;
         let pins = &mut self.pins;
-        // Which lines the poll saw: those at the last instruction's
-        // last-but-one access when a line changed after it (polled_lines, set
-        // by execute_sequence), else the lines as they stand.
-        let polled_lines = pins.polled_lines.take();
-        let lines = pins.lines;
-        let seen = match self.irq_poll_cycle {
-            IrqPollCycle::SecondToLast => None,
-            IrqPollCycle::Last => Some(lines),
-            IrqPollCycle::Mednafen => {
-                let seen = polled_lines.unwrap_or(lines);
-                Some((seen & !TIQ_BIT) | (lines & TIQ_BIT))
-            }
-        };
-        match seen {
-            None => pins.poll_lines = polled_lines.unwrap_or(lines),
-            Some(seen) => {
-                pins.poll_lines = seen;
-                let polled = pins.frame.polled.unwrap_or(pins.frame.requests);
-                if polled & NO_POLL == 0 {
-                    // The frame kept the requests from before the last cycle;
-                    // the mode counts its own lines instead.
-                    let asserted = if seen & !pins.irq_disable & 7 != 0 {
-                        IRQ_LINE
-                    } else {
-                        0
-                    };
-                    pins.frame.polled = Some((polled & !IRQ_LINE) | asserted);
-                }
-            }
+        let polled_lines = pins.polled_lines;
+        if mode == IrqPollCycle::SecondToLast {
+            // The frame's poll; the lines it saw are the ones a change in the last cycle left.
+            // They hold until this boundary only (CpuState::polled_irq_lines).
+            pins.poll_lines = polled_lines.unwrap_or(pins.lines);
+            pins.polled_lines = None;
+            return pins.frame.boundary_interrupt(self.p);
         }
-        let p = self.p;
-        self.pins.frame.boundary_interrupt(p)
+        // IrqPollCycle::Last (the reference raises ValueError for any other name).
+        pins.poll_lines = pins.lines;
+        pins.polled_lines = None;
+        let frame = &mut pins.frame;
+        let requests = match frame.polled.take() {
+            None => frame.requests,
+            Some(polled) => polled,
+        };
+        if requests & NMI_LATCH != 0 {
+            return NMI_LATCH;
+        }
+        let i_flag = match frame.polled_i.take() {
+            None => self.p & I,
+            // U21: CLI, SEI and PLP still count one instruction late.
+            Some(polled_i) => polled_i,
+        };
+        if pins.lines & !pins.irq_disable & 7 != 0 && i_flag == 0 {
+            return IRQ_LINE;
+        }
+        0
     }
 
-    /// The vector of the highest-priority source the entry takes (HW HB-13),
-    /// or `None` to drop.
+    /// The vector of the highest-priority source this entry takes, or `None`
+    /// if none is left.
     fn maskable_vector(&self) -> Option<u16> {
-        let pins = &self.pins;
-        let enabled = !pins.irq_disable & 7;
-        let polled = pins.poll_lines & enabled;
-        let live = pins.lines & enabled;
-        let pending = match self.vanished_interrupt {
-            VanishedInterrupt::Mesen2 => (polled & !TIQ_BIT) | (polled & live & TIQ_BIT),
-            VanishedInterrupt::Drop => {
-                if live != 0 {
-                    polled
-                } else {
-                    0
-                }
-            }
-            VanishedInterrupt::Latched => polled,
+        let enabled = !self.pins.irq_disable & 7;
+        let seen = self.pins.poll_lines & enabled;
+        let live = self.pins.lines & enabled;
+        let taking = match self.vanished_interrupt {
+            VanishedInterrupt::Mesen2 => (seen & (IRQ1_BIT | IRQ2_BIT)) | (seen & live & TIQ_BIT),
+            VanishedInterrupt::Drop => seen & live,
         };
-        if pending & TIQ_BIT != 0 {
-            return Some(VECTOR_TIQ);
-        }
-        if pending & IRQ1_BIT != 0 {
-            return Some(VECTOR_IRQ1);
-        }
-        if pending & IRQ2_BIT != 0 {
-            return Some(VECTOR_IRQ2);
+        // Priority TIQ, IRQ1, IRQ2 (HW Fig. 2-4-1).
+        for (bit, vector) in [
+            (TIQ_BIT, VECTOR_TIQ),
+            (IRQ1_BIT, VECTOR_IRQ1),
+            (IRQ2_BIT, VECTOR_IRQ2),
+        ] {
+            if taking & bit != 0 {
+                return Some(vector);
+            }
         }
         None
     }

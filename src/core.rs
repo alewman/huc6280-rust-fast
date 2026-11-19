@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Registers, the memory mapper, the cycle primitives and the addressing
 //! modes (`_core.py`).
 //!
@@ -14,9 +15,9 @@
 //!   nothing on the bus.
 //!
 //! The bus shapes (which cycle is which, and where the internal cycles sit)
-//! are those of SingleStepTests huc6280 (the reference's docs/timing.md, "The
-//! bus cycles"): Mesen's model, **emulator tier** (C8). Hudson's manual gives
-//! totals only.
+//! are those SingleStepTests huc6280 records (the reference's docs/timing.md,
+//! "The bus cycles"): MIT test data recorded from Mesen run as a closed box,
+//! **emulator tier** (C8). Hudson's manual gives totals only.
 //!
 //! The addresses the callbacks receive are 21-bit physical addresses: the
 //! mapper is in the core (the reference's docs/handoff-brief.md, "The core
@@ -227,34 +228,39 @@ pub struct HuC6280<B: Bus> {
 
     // -- the named switches, each with the reference's default ------------
     /// Named so a board or a later capture can change it: whether a pointer
-    /// at zero-page offset $FF takes its high byte from offset $00 (Mesen's
-    /// ReadZeroPageWrap, MAME's program_read16z; emulator tier, U8) or from
-    /// logical $2100.
+    /// at zero-page offset $FF takes its high byte from offset $00 (U8,
+    /// emulator tier: MAME 0.285 h6280.cpp `program_read16z`, BSD-3-Clause,
+    /// Bryan McPhail, wraps within the zero page, and the SingleStepTests
+    /// corpus's cases at $FF pass with it) or from logical $2100.
     pub zero_page_pointer_wraps: bool,
     /// C5: whether SBC honours T like ADC (`false`: SW and pcetech list only
     /// ORA AND EOR ADC).
     pub sbc_honours_t: bool,
-    /// C13: the decimal digit adjust of ADC and SBC.
+    /// C13: the decimal digit adjust of ADC and SBC,
+    /// [`DecimalFormula::Mednafen`] (default) or [`DecimalFormula::Mesen`]
+    /// (alu.rs).
     pub decimal_formula: DecimalFormula,
     /// C12: what TSB and TRB's Z reports. `false` (default): the stored
-    /// result is zero (pcetech 2.0 "Z = If result is zero", MAME, Mednafen
-    /// and Mesen2's current source). `true`: the 65C02's A AND M is zero,
-    /// which is what the SingleStepTests corpus (an older Mesen) records.
+    /// result is zero (pcetech 2.0, "Z = If result is zero"; MAME 0.285
+    /// h6280.cpp `tsb`/`trb`, BSD-3-Clause, Bryan McPhail, does the same).
+    /// `true`: the 65C02's A AND M is zero, which is what the SingleStepTests
+    /// corpus records (emulator tier, its masked cases).
     pub tsb_z_from_test: bool,
     /// C9: pcetech says reads of $0800-$17FF return 0 in a block transfer
-    /// (hw-verified); MAME and Mednafen read the device. `false` reads the
-    /// device like any access.
+    /// (hw-verified); MAME reads the device (the rung 4 replays). `false`
+    /// reads the device like any access.
     pub block_reads_hardware_page_as_zero: bool,
     /// C4: pcetech tested opcode $63 as a two-cycle NOP; MAME bills four.
     /// Emulator-tier knob for a board that wants MAME's count.
     pub nop_63_cycles: u32,
-    /// C3: an interrupt entry takes 8 cycles in Mesen, Mednafen, Geargrafx
-    /// and ares, 7 in MAME (emulator tier; no manual states it).
+    /// C3: an interrupt entry takes 8 cycles: ares (ISC) and Mesen2 run as a
+    /// closed box (its bus log, control.rs); MAME 0.285 takes 7 (h6280.cpp
+    /// `do_interrupt`, BSD-3-Clause). Emulator tier; no manual states it.
     pub interrupt_entry_cycles: u32,
-    /// C18: what an interrupt does when its source has gone between the
-    /// poll and the entry.
+    /// C18: what an entry does when a source the poll saw has gone by the
+    /// boundary ([`VanishedInterrupt`]).
     pub vanished_interrupt: VanishedInterrupt,
-    /// U25: which cycle of an instruction the interrupt lines are sampled at.
+    /// U25: when the boundary samples the interrupt lines ([`IrqPollCycle`]).
     pub irq_poll_cycle: IrqPollCycle,
     /// C6: TMA with several mask bits.
     pub tma_multiple: TmaMultiple,

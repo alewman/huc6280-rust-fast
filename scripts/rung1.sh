@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # Rung 1: trace lockstep, short. The directed scenarios (every opcode many
 # times, T and D both ways, the mapper, block transfers, every named switch;
 # scripts/make_scenarios.py) on both cores, traces compared boundary by

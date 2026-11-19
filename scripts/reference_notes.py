@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """Three corners of the reference's interrupt lines, shown on the reference itself.
 
     external/huc6280-python/.venv/bin/python scripts/reference_notes.py

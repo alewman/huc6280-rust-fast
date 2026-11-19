@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # Rung 3: Klaus Dormann's 65C02 extended opcodes test, relocated for the
 # HuC6280 as the reference's scripts/run_dormann.py builds it, natively to its
 # success trap, with the instruction count the reference core takes.
