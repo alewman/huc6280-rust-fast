@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # The board side of the fork's gate and measurements, on scratch copies: nothing is written in
 # ../pcengine-rust-fast, ../supergrafx-rust or ../pcenginecd-rust (another session may be working
 # there). Each copy is that repository's committed HEAD (git archive) with ONE line changed, the

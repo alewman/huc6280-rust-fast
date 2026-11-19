@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """A/B two wasm builds of the board (scripts/board.sh rev's pce_wasm_bench.wasm) under Node, by
 the process's CPU time, alternating them title by title on one pinned CPU, each side's best of
 ROUNDS runs (the board's wasm-bench/bench.mjs, which takes the best of its own --rounds).

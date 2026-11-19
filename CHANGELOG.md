@@ -13,7 +13,9 @@ inside that decision, so both paths leave them as before. The core gate
 (`scripts/ladder.sh`, against `6ce348e`): `cargo test` 23, rung 1 tables and 5 of 5, rung 2
 640,000 cases under both formulas with 0 judged differently, rung 3 Dormann `$5675`, rung 4 38 of
 38, rung 5 8 of 8. **API change**, inherited: `VanishedInterrupt::Latched` and
-`IrqPollCycle::Mednafen` are gone.
+`IrqPollCycle::Mednafen` are gone. Rung 6: 43 seeded faults caught, 0 missed (huc6280-rust's 40 and the
+fork's three). Speed not re-measured (the rewrite touches only the interrupt decision and the
+decimal arithmetic).
 
 ## huc6280-rust, unreleased (`1c44044`)
 

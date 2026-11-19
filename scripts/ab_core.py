@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """A/B two builds on this shared machine by CPU time, alternating them on one pinned CPU and
 comparing each side's best run (other work only ever slows a run down), for the two cases the
 board's scripts/ab.py does not cover:
