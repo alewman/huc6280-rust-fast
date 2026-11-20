@@ -1,4 +1,6 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: MIT AND BSD-3-Clause
+// bank_offsets is ported from MAME's src/devices/bus/pce/pce_slot.cpp rom_map_setup (BSD-3-Clause,
+// copyright Fabio Priuli), through huc6280-python's harness.py: notice in NOTICE.md.
 //! Rung 5: replay MAME 0.285's trace of a real game through the core, as the
 //! reference's `tests/mame_replay.py` does, and print the same report.
 //!
