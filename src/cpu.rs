@@ -16,7 +16,6 @@ use sixfiveohtwo::frame::{Frame, Part};
 
 use crate::control::{IRQ1_BIT, IRQ2_BIT, TIQ_BIT};
 use crate::core::{Bus, HuC6280, T};
-use crate::dispatch::OPCODES;
 use crate::state::CpuState;
 
 impl<B: Bus> Part for HuC6280<B> {
@@ -65,8 +64,7 @@ impl<B: Bus> HuC6280<B> {
         // next instruction; the handler sees what it was.
         self.t = self.p & T;
         self.p &= !T;
-        let (op, mode, ..) = OPCODES[opcode as usize];
-        self.dispatch(op, mode);
+        self.dispatch_opcode(opcode);
         // A line that changed after the last bus access changed in the last
         // cycle, after the poll (U21): the next boundary decides on the lines
         // as they stood at that access. The frame keeps only whether an
@@ -83,8 +81,38 @@ impl<B: Bus> HuC6280<B> {
 
     /// Execute one instruction, interrupt entry or reset; return its cycle
     /// count ([`Part::step`], the frame's).
+    ///
+    /// The fork: the usual boundary (no reset, not halted, nothing requested,
+    /// nothing the last poll left: `Part::step` would skip the interrupt
+    /// decision too) is tested in one go and runs the instruction here; any
+    /// other boundary is `Part::step`'s. The polled lines (issue 0005) need
+    /// no test of their own: `Part::step` skips the boundary decision that
+    /// would use them up at such a boundary too, and `execute_sequence`
+    /// rewrites them at its end on either path.
     #[inline]
     pub fn step(&mut self) -> u32 {
+        let frame = &self.pins.frame;
+        if frame.reset_pending
+            | frame.halted
+            | (frame.requests != 0)
+            | frame.polled.is_some()
+            | frame.polled_i.is_some()
+        {
+            return self.step_at_a_request();
+        }
+        let cycles = self.execute_sequence();
+        let frame = &mut self.pins.frame;
+        if let Some(deferred) = frame.deferred {
+            // A bus callback changed a request in the last cycle, after the poll.
+            frame.deferred = None;
+            frame.polled = Some(deferred);
+        }
+        cycles
+    }
+
+    /// A boundary with something to decide: the frame's own step.
+    #[inline(never)]
+    fn step_at_a_request(&mut self) -> u32 {
         Part::step(self)
     }
 

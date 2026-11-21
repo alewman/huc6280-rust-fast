@@ -1,7 +1,23 @@
 <!-- SPDX-License-Identifier: MIT -->
 # Changelog
 
-## Unreleased
+huc6280-rust's, merged with it; this fork's own entries say so.
+
+## huc6280-rust-fast, unreleased
+
+Merges huc6280-rust's clean-rewrite carry (`1c44044`, huc6280-python `6ce348e`, below). The
+fork's two speed changes are kept: the dispatch from rows, and the one-test usual boundary in
+`step`, which needed no change: it takes the fast path exactly when `Part::step` would skip the
+boundary decision, and the new rule (the boundary decision clears the polled lines) only acts
+inside that decision, so both paths leave them as before. The core gate
+(`scripts/ladder.sh`, against `6ce348e`): `cargo test` 23, rung 1 tables and 5 of 5, rung 2
+640,000 cases under both formulas with 0 judged differently, rung 3 Dormann `$5675`, rung 4 38 of
+38, rung 5 8 of 8. **API change**, inherited: `VanishedInterrupt::Latched` and
+`IrqPollCycle::Mednafen` are gone. Rung 6: 43 seeded faults caught, 0 missed (huc6280-rust's 40 and the
+fork's three). Speed not re-measured (the rewrite touches only the interrupt decision and the
+decimal arithmetic).
+
+## huc6280-rust, unreleased (`1c44044`)
 
 Carries huc6280-python's clean rewrite (`6ce348e`, after `v0.4.0`; local, not yet on
 GitHub): the parts its provenance audit marked rewrite or unclear were replaced there, and the
@@ -27,6 +43,14 @@ to `6ce348e`.
   NOTICE.md; `docs/provenance.md` verdicts updated item by item; three directed tests added
   (C16's entry between SET and its target, a source still asserted in every mode, the polled
   lines cleared at the boundary) and the replay's mirroring test.
+
+## huc6280-rust-fast 0.2.0 (2026-11-13)
+
+Merges huc6280-rust 0.2.0 (`43e5978`, issue 0005, below). The fork's two
+speed changes are kept; its one-test boundary in `step` needed no change.
+The core gate (rungs 1-5) and 35 seeded faults pass against huc6280-python
+`v0.4.0`. Recording the lines at every access costs about 5% on Dormann's
+test (x0.950, x0.945); the board was not re-measured.
 
 ## 0.2.0 (2026-11-13)
 

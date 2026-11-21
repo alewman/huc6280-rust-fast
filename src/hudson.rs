@@ -158,6 +158,7 @@ impl<B: Bus> HuC6280<B> {
     }
 
     /// TST -- immediate AND M sets Z; M bits 7 and 6 -> N and V (SW SB-104).
+    #[inline(always)]
     pub(crate) fn op_tst(&mut self, mode: Mode) {
         let mask = self.fetch();
         let address = self.ea(mode);

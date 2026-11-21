@@ -1,0 +1,62 @@
+--- a/src/board.rs	2026-11-13 14:16:23.580382198 -0800
++++ b/src/board.rs	2026-11-13 14:16:34.122878818 -0800
+@@ -36,7 +36,7 @@
+ //! skip work only where the base board's would have found nothing to do: the state after
+ //! every cycle is the base board's (tests/fork.rs).
+ 
+-use huc6280::{Bus, Pins};
++use huc6280::{Bus, Pins, QuietWindow};
+ 
+ use crate::cards::{PopulousCard, RomCard, Sf2Card, TennokoeCard};
+ use crate::cpu_io::CpuIo;
+@@ -1040,4 +1040,50 @@
+         }
+         self.idle_in_full(pins)
+     }
++
++    // huc6280-rust-fast's quiet window: the same shortcut as the quiet cases above, taken by
++    // the core without a call. Under the horizon (`wake`), with no tap, an internal cycle or a
++    // dummy read only moves the clock, and a work RAM or lent ROM access only moves the byte;
++    // the core adds the clocks up and pays them with `quiet_spent`.
++    const QUIET: bool = true;
++
++    #[inline(always)]
++    fn quiet_window(&mut self, _pins: &Pins) -> QuietWindow {
++        if self.tapped() {
++            return QuietWindow::CLOSED;
++        }
++        QuietWindow {
++            budget: self.wake.saturating_sub(self.mclk),
++            clocks: [CPU_CLOCKS_LOW, CPU_CLOCKS_HIGH],
++        }
++    }
++
++    #[inline(always)]
++    fn quiet_read(&mut self, address: u32) -> Option<u8> {
++        let address_in = address & ADDRESS_MASK;
++        match self.quiet_page(address_in) {
++            Quiet::Ram => Some(self.ram.read(address_in)),
++            Quiet::Rom => Some(self.rom_read(address_in)),
++            Quiet::Card | Quiet::No => None,
++        }
++    }
++
++    #[inline(always)]
++    fn quiet_write(&mut self, address: u32, value: u8) -> bool {
++        let address_in = address & ADDRESS_MASK;
++        match self.quiet_page(address_in) {
++            Quiet::Ram => {
++                self.ram.write(address_in, value);
++                true
++            }
++            Quiet::Rom => true, // a plain ROM ignores writes
++            Quiet::Card | Quiet::No => false,
++        }
++    }
++
++    #[inline(always)]
++    fn quiet_spent(&mut self, clocks: i64, pins: &Pins) {
++        self.mclk += clocks;
++        self.opcode = pins.opcode();
++    }
+ }

@@ -200,6 +200,27 @@ FAULTS = {
         "            Some(lines) => lines & enabled,",
         "            Some(_) => live,",
     ),
+    # -- the fork's shortcuts --------------------------------------------------------------
+    # dispatch.rs (the dispatch from constant rows): an arm is built with zp for a zp,X row.
+    "row-mode-zpx-as-zp": (
+        "dispatch.rs",
+        "                        self.dispatch(ROW.0, ROW.1)",
+        "                        self.dispatch(ROW.0, if matches!(ROW.1, Mode::Zpx) { Mode::Zp } else { ROW.1 })",
+    ),
+    # cpu.rs (the usual boundary in one test): a boundary with only polled_i left (after CLI,
+    # SEI or PLP with no request up) runs the instruction without the frame consuming it.
+    "step-keeps-polled-i": (
+        "cpu.rs",
+        "            | frame.polled.is_some()\n            | frame.polled_i.is_some()\n",
+        "            | frame.polled.is_some()\n",
+    ),
+    # cpu.rs (the usual boundary in one test): a request changed in the last cycle is forgotten,
+    # not left for the next boundary's decision.
+    "step-drops-deferred": (
+        "cpu.rs",
+        "            frame.deferred = None;\n            frame.polled = Some(deferred);",
+        "            frame.deferred = None;\n            let _ = deferred;",
+    ),
     # -- on the clean rewrite's code (huc6280-python 6ce348e; the faults on the withdrawn code
     # were moved aside with it) --
     # alu.rs: the default decimal formula adds digit by digit, as "mesen" does.

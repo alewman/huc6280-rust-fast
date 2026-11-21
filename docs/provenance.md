@@ -1,12 +1,12 @@
 <!-- SPDX-License-Identifier: MIT -->
 # Provenance
 
-huc6280-rust is a Rust transcription of huc6280-python `v0.3.0` (`bf20330`, after
+huc6280-rust-fast is the speed fork of huc6280-rust, a Rust transcription of huc6280-python `v0.3.0` (`bf20330`, after
 the decimal rewrite), carried forward to `265df88` (issue 0005) and, on 2026-11-19, to
 `6ce348e`, the reference's clean rewrite ([restart.md](restart.md)). It inherits
 huc6280-python's verdicts: see that repository's `docs/provenance.md` (audit of 2026-11-13,
 wave 1, verdicts updated by its rewrite). The items that needed work there were carried here,
-in the transcribed file, item by item:
+in the transcribed file, item by item (in huc6280-rust `1c44044`, merged here; the fork's own changes touch none of these items):
 
 | Inherited item | Audit (2026-11-13) | Here, after the rewrite (2026-11-19) |
 | --- | --- | --- |
@@ -28,6 +28,7 @@ No GPL or LGPL source was opened for the audit or for the rewrite. What this rep
 | `scripts/fetch_*.sh` | fetch SingleStepTests (MIT), Dormann's tests (GPL-3.0) and the reference; nothing committed | clean |
 | `tests/core.rs`, `docs/seeded-faults.md`, `conformance/` | own | clean |
 | `scratch/withdraw.py` (git-ignored, with `scratch/withdrawn/`) | own helper of the rewrite | not committed |
+| `scripts/ab_core.py`, `ab_wasm.py`, `ladder.sh`, `board.sh`, `scripts/board-quiet.patch` (a patch to our own pcengine board), `docs/not-kept.md`, `docs/fast-brief.md` | own speed work | clean |
 
 ## History (PUBLIC)
 

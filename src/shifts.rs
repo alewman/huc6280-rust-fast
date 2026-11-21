@@ -47,6 +47,7 @@ impl<B: Bus> HuC6280<B> {
     }
 
     /// ASL -- shift M left, bit 7 -> C (SW SB-19).
+    #[inline(always)]
     pub(crate) fn op_asl(&mut self, mode: Mode) {
         let address = self.ea(mode);
         self.modify(address, Self::asl);
@@ -58,6 +59,7 @@ impl<B: Bus> HuC6280<B> {
     }
 
     /// LSR -- shift M right, bit 0 -> C (SW SB-56).
+    #[inline(always)]
     pub(crate) fn op_lsr(&mut self, mode: Mode) {
         let address = self.ea(mode);
         self.modify(address, Self::lsr);
@@ -69,6 +71,7 @@ impl<B: Bus> HuC6280<B> {
     }
 
     /// ROL -- rotate M left through C (SW SB-68).
+    #[inline(always)]
     pub(crate) fn op_rol(&mut self, mode: Mode) {
         let address = self.ea(mode);
         self.modify(address, Self::rol);
@@ -80,6 +83,7 @@ impl<B: Bus> HuC6280<B> {
     }
 
     /// ROR -- rotate M right through C (SW SB-69).
+    #[inline(always)]
     pub(crate) fn op_ror(&mut self, mode: Mode) {
         let address = self.ea(mode);
         self.modify(address, Self::ror);
@@ -91,6 +95,7 @@ impl<B: Bus> HuC6280<B> {
     }
 
     /// INC -- M + 1 -> M (SW SB-48).
+    #[inline(always)]
     pub(crate) fn op_inc(&mut self, mode: Mode) {
         let address = self.ea(mode);
         self.modify(address, Self::inc);
@@ -102,6 +107,7 @@ impl<B: Bus> HuC6280<B> {
     }
 
     /// DEC -- M - 1 -> M (SW SB-44).
+    #[inline(always)]
     pub(crate) fn op_dec(&mut self, mode: Mode) {
         let address = self.ea(mode);
         self.modify(address, Self::dec);

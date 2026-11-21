@@ -1,11 +1,11 @@
 [package]
-name = "huc6280-rust"
+name = "huc6280-rust-fast"
 version = "0.2.0"
 edition = "2021"
 rust-version = "1.85"
-description = "A Rust Hudson HuC6280 core transcribed from, and proven equivalent to, huc6280-python"
+description = "A speed fork of huc6280-rust, the Rust Hudson HuC6280 core, held in lockstep with it"
 license = "MIT"
-repository = "https://github.com/alewman/huc6280-rust"
+repository = "https://github.com/alewman/huc6280-rust-fast"
 readme = "README.md"
 publish = false
 

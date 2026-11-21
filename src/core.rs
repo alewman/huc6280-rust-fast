@@ -7,7 +7,7 @@
 //! [`Pins::kind`] while the callback runs:
 //!
 //! - [`Kind::Read`]: [`Bus::read`]; the opcode fetch is the first cycle.
-//! - [`Kind::Write`][]: [`Bus::write`].
+//! - [`Kind::Write`][]: [`Bus::write`], the value the chip drives.
 //! - [`Kind::Dummy`]: [`Bus::idle`] with `Some(address)`; a read the chip
 //!   makes and throws away, at the address given (the byte after the opcode
 //!   for an implied instruction).
@@ -325,7 +325,7 @@ impl<B: Bus> HuC6280<B> {
     // -- cycles ----------------------------------------------------------
 
     /// A data or program read at a logical address.
-    #[inline]
+    #[inline(always)]
     pub(crate) fn cycle_read(&mut self, address: u16) -> u8 {
         self.pins.kind = Kind::Read;
         self.cycles += 1;
@@ -335,7 +335,7 @@ impl<B: Bus> HuC6280<B> {
     }
 
     /// A write at a logical address.
-    #[inline]
+    #[inline(always)]
     pub(crate) fn cycle_write(&mut self, address: u16, value: u8) {
         self.pins.kind = Kind::Write;
         self.cycles += 1;
@@ -353,7 +353,7 @@ impl<B: Bus> HuC6280<B> {
     }
 
     /// A read the chip makes and discards, at a logical address (C8).
-    #[inline]
+    #[inline(always)]
     pub(crate) fn dummy(&mut self, address: u16) {
         self.pins.kind = Kind::Dummy;
         self.cycles += 1;
@@ -363,7 +363,7 @@ impl<B: Bus> HuC6280<B> {
     }
 
     /// An internal cycle: nothing on the bus (C8).
-    #[inline]
+    #[inline(always)]
     pub(crate) fn io(&mut self) {
         self.pins.kind = Kind::Idle;
         self.cycles += 1;
@@ -378,7 +378,7 @@ impl<B: Bus> HuC6280<B> {
     }
 
     /// One operand byte at PC.
-    #[inline]
+    #[inline(always)]
     pub(crate) fn fetch(&mut self) -> u8 {
         let pc = self.pc;
         self.pc = pc.wrapping_add(1);
