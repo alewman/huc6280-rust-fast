@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
 # The reference, huc6280-python at the pinned commit (6ce348e, the clean rewrite after
-# v0.4.0; local until pushed), into external/
+# v0.4.0; on GitHub since 2026-11-20), into external/
 # with a venv (its 6502-python dependency comes with it, by its own pin).
 # Usage: scripts/fetch_huc6280python.sh [DEST] [SOURCE]
 #   SOURCE: a git URL or a local clone (default: GitHub); the commit is fetched
-#   from it, so a local clone that has the commit works before GitHub does.
+#   from it, so a local clone that has the commit works too.
 #   PYTHON picks the interpreter for the venv (PyPy runs the long rungs several
 #   times faster).
 set -euo pipefail

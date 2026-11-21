@@ -61,8 +61,8 @@ re-measured). Gates, re-run on 2026-11-19 after the merge:
 
 Rungs 1 to 6 and `cargo test` are the runs of 2026-11-19 after merging
 huc6280-rust `e1d24a3` (the clean rewrite), against huc6280-python `6ce348e`
-(fetched from a local clone: not on GitHub yet, so CI's rungs job fails until
-it is pushed); the board row is the run of 2026-11-13. **Nothing here was run on a real console**: like
+(fetched from a local clone then; on GitHub since 2026-11-20, so CI's rungs job
+fetches it from there); the board row is the run of 2026-11-13. **Nothing here was run on a real console**: like
 huc6280-rust, this core is proven equal to the reference, not to the chip.
 
 ## Using it
