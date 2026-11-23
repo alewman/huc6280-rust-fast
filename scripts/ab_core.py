@@ -28,10 +28,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-# The defaults are the author's layout: set SYSCARD (the System Card 3.0 image) and LIBCD (the
-# directory of .chd discs) to your own.
-SYSCARD = os.environ.get("SYSCARD", "/data/emu/share/batocera/bios/syscard3.pce")
-LIBCD = os.environ.get("LIBCD", "/data/emu/roms-retrobat/pcenginecd")
+# The cd case needs SYSCARD (the System Card 3.0 image) and LIBCD (the directory of .chd discs).
+SYSCARD = os.environ.get("SYSCARD")
+LIBCD = os.environ.get("LIBCD")
 DISC = "Ryuuko no Ken (Japan) (En,Ja,Es) (FACT)"
 
 
@@ -69,6 +68,9 @@ def main() -> int:
     a = p.parse_args()
     work = None
     if a.case == "cd":
+        unset = [name for name, value in (("SYSCARD", SYSCARD), ("LIBCD", LIBCD)) if not value]
+        if unset:
+            raise SystemExit(f"the cd case needs {' and '.join(unset)} (see the comment at the top)")
         work = ROOT / "scratch" / "disc" / re.sub(r"[^A-Za-z0-9]+", "_", a.disc)
         work.mkdir(parents=True, exist_ok=True)
         cue = work / "disc.cue"
